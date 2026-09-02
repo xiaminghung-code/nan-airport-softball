@@ -1093,7 +1093,18 @@ function statsRank(){
   `;
 }
 
+function knownOpponents(){
+  const fromStandings = standings.filter(s=>!s.me).map(s=>s.team);
+  const fromSchedule = schedule.map(s=>s.opp);
+  return [...new Set([...fromStandings, ...fromSchedule])].sort((a,b)=>a.localeCompare(b,'zh-Hant'));
+}
+function knownPlaces(){
+  return [...new Set(schedule.map(s=>s.place).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-Hant'));
+}
+
 function viewSchedule(){
+  const opponents = knownOpponents();
+  const places = knownPlaces();
   return `
   ${isAdmin() ? `
   <section>
@@ -1103,12 +1114,28 @@ function viewSchedule(){
         <label>類型</label>
         <select id="schedType"><option value="聯賽">聯賽</option><option value="盃賽">盃賽</option></select>
       </div>
-      <div class="form-row"><label>對手球隊</label><input id="schedOpp" placeholder="對手球隊" /></div>
+      <div class="form-row">
+        <label>對手球隊</label>
+        <select id="schedOppSel">
+          <option value="">— 選擇對手 —</option>
+          ${opponents.map(o=>`<option value="${o}">${o}</option>`).join('')}
+          <option value="__new__">+ 新增對手...</option>
+        </select>
+        <input id="schedOppNew" placeholder="輸入新對手球隊名稱" style="display:none;margin-top:8px;" />
+      </div>
       <div class="form-2col">
         <div class="form-row"><label>日期</label><input id="schedDate" type="date" /></div>
         <div class="form-row"><label>時間</label><input id="schedTime" type="time" value="08:00" /></div>
       </div>
-      <div class="form-row"><label>場地</label><input id="schedPlace" placeholder="場地(選填)" /></div>
+      <div class="form-row">
+        <label>場地(選填)</label>
+        <select id="schedPlaceSel">
+          <option value="">— 選擇場地 —</option>
+          ${places.map(p=>`<option value="${p}">${p}</option>`).join('')}
+          <option value="__new__">+ 新增場地...</option>
+        </select>
+        <input id="schedPlaceNew" placeholder="輸入新場地名稱" style="display:none;margin-top:8px;" />
+      </div>
       <button class="btn-primary" data-action="addSchedule">新增賽程</button>
     </div>
   </section>
@@ -1173,6 +1200,8 @@ function viewRoster(){
 function renderPlayerEditForm(idx){
   const p = roster[idx];
   if(!p) return '';
+  const bs = battingStats[p.name] || {AB:0,H:0,BB:0,R:0,HR:0};
+  const ps = pitchingStats[p.name] || {outs:0,K:0,BB:0,H:0,R:0,ER:0,W:0};
   return `
   <div class="card" style="margin-bottom:10px;">
     <div class="section-title" style="margin-bottom:10px;">編輯球員</div>
@@ -1186,7 +1215,34 @@ function renderPlayerEditForm(idx){
     </div>
     <div class="form-row"><label>守備位置</label><input id="editPos" value="${p.pos||''}" /></div>
     <div class="form-row"><label>目前狀況(留空 = 正常在隊)</label><input id="editStatus" value="${p.status||''}" placeholder="例如:職涯發展、時間問題(留空代表已恢復)" /></div>
-    <div style="display:flex;gap:8px;">
+
+    <div class="section-title" style="margin:16px 0 8px;font-size:13px;">打擊數據(輸錯可以直接改)</div>
+    <div class="form-2col">
+      <div class="form-row"><label>打數</label><input id="editAB" value="${bs.AB}" inputmode="numeric" /></div>
+      <div class="form-row"><label>安打</label><input id="editH" value="${bs.H}" inputmode="numeric" /></div>
+    </div>
+    <div class="form-2col">
+      <div class="form-row"><label>全壘打</label><input id="editHR" value="${bs.HR}" inputmode="numeric" /></div>
+      <div class="form-row"><label>保送</label><input id="editBBb" value="${bs.BB}" inputmode="numeric" /></div>
+    </div>
+    <div class="form-row"><label>得分</label><input id="editBatR" value="${bs.R}" inputmode="numeric" /></div>
+
+    <div class="section-title" style="margin:16px 0 8px;font-size:13px;">投手數據</div>
+    <div class="form-2col">
+      <div class="form-row"><label>投球出局數</label><input id="editOuts" value="${ps.outs}" inputmode="numeric" /></div>
+      <div class="form-row"><label>三振</label><input id="editK" value="${ps.K}" inputmode="numeric" /></div>
+    </div>
+    <div class="form-2col">
+      <div class="form-row"><label>被安打</label><input id="editPH" value="${ps.H}" inputmode="numeric" /></div>
+      <div class="form-row"><label>保送</label><input id="editPBB" value="${ps.BB}" inputmode="numeric" /></div>
+    </div>
+    <div class="form-2col">
+      <div class="form-row"><label>失分</label><input id="editPR" value="${ps.R}" inputmode="numeric" /></div>
+      <div class="form-row"><label>自責分</label><input id="editER" value="${ps.ER}" inputmode="numeric" /></div>
+    </div>
+    <div class="form-row"><label>勝投</label><input id="editW" value="${ps.W}" inputmode="numeric" /></div>
+
+    <div style="display:flex;gap:8px;margin-top:6px;">
       <button class="btn-primary" style="flex:1;" data-action="saveEditPlayer" data-idx="${idx}">儲存</button>
       <button class="btn-outline" style="flex:1;" data-action="cancelEditPlayer">取消</button>
     </div>
@@ -1477,6 +1533,16 @@ function viewSettings(){
       `}
     </div>
   </section>
+
+  ${isAdmin() ? `
+  <section>
+    <div class="section-title">危險區域</div>
+    <div class="card">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">把所有球員的打擊/投手累積數據清空歸零(測試資料清乾淨用),賽程、名單、戰績都不會動。這個動作沒辦法復原。</div>
+      <button class="btn-outline" style="color:var(--bad);border-color:var(--bad);" data-action="resetStats">清空打擊/投手數據</button>
+    </div>
+  </section>
+  ` : ''}
   `;
 }
 
@@ -1498,6 +1564,14 @@ function bindDynamicHandlers(){
   });
   const statSel = document.getElementById('statPlayerSel');
   if(statSel) statSel.addEventListener('change', ()=>{ selectedStatPlayer = statSel.value; render(); });
+  const schedOppSel = document.getElementById('schedOppSel');
+  if(schedOppSel) schedOppSel.addEventListener('change', ()=>{
+    document.getElementById('schedOppNew').style.display = schedOppSel.value==='__new__' ? 'block' : 'none';
+  });
+  const schedPlaceSel = document.getElementById('schedPlaceSel');
+  if(schedPlaceSel) schedPlaceSel.addEventListener('change', ()=>{
+    document.getElementById('schedPlaceNew').style.display = schedPlaceSel.value==='__new__' ? 'block' : 'none';
+  });
 
   app.querySelectorAll('[data-order-ns]').forEach(el=>{
     el.addEventListener('change', ()=>{
@@ -1617,13 +1691,19 @@ function bindDynamicHandlers(){
         const idx = +el.dataset.idx;
         const p = roster[idx];
         if(!p){ editingPlayerIdx = null; render(); return; }
-        p.name = document.getElementById('editName')?.value.trim() || p.name;
+        const oldName = p.name;
+        const newName = document.getElementById('editName')?.value.trim() || p.name;
+        p.name = newName;
         p.no = document.getElementById('editNo')?.value.trim() || p.no;
         p.jersey = document.getElementById('editJersey')?.value.trim() || '';
         p.size = document.getElementById('editSize')?.value.trim() || '';
         p.pos = document.getElementById('editPos')?.value.trim() || '';
         const st = document.getElementById('editStatus')?.value.trim();
         if(st) p.status = st; else delete p.status;
+        const num = id => { const v = +document.getElementById(id)?.value; return isNaN(v) ? 0 : v; };
+        if(oldName !== newName){ delete battingStats[oldName]; delete pitchingStats[oldName]; }
+        battingStats[newName] = { AB:num('editAB'), H:num('editH'), HR:num('editHR'), BB:num('editBBb'), R:num('editBatR'), outs:0, K:0, ER:0, W:0 };
+        pitchingStats[newName] = { outs:num('editOuts'), K:num('editK'), H:num('editPH'), BB:num('editPBB'), R:num('editPR'), ER:num('editER'), W:num('editW') };
         editingPlayerIdx = null; render(); toast('已更新球員資料');
         return;
       }
@@ -1631,11 +1711,13 @@ function bindDynamicHandlers(){
       if(act==='addSchedule'){
         if(!requireAdmin())return;
         const type = document.getElementById('schedType').value;
-        const opp = document.getElementById('schedOpp').value.trim();
+        const oppSel = document.getElementById('schedOppSel').value;
+        const opp = oppSel==='__new__' ? document.getElementById('schedOppNew').value.trim() : oppSel;
         const date = document.getElementById('schedDate').value;
         const time = document.getElementById('schedTime').value;
-        const place = document.getElementById('schedPlace').value.trim();
-        if(!opp){ toast('請輸入對手球隊'); return; }
+        const placeSel = document.getElementById('schedPlaceSel').value;
+        const place = placeSel==='__new__' ? document.getElementById('schedPlaceNew').value.trim() : placeSel;
+        if(!opp){ toast('請選擇或輸入對手球隊'); return; }
         schedule.push({type, opp, date, time, place});
         sortSchedule();
         render();
@@ -1671,6 +1753,15 @@ function bindDynamicHandlers(){
         return;
       }
       if(act==='saveLinkedPlayer'){ saveLinkedPlayer(); return; }
+      if(act==='resetStats'){
+        if(!requireAdmin())return;
+        if(!confirm('確定要把所有球員的打擊/投手數據清空嗎?這個動作沒辦法復原。')) return;
+        Object.keys(battingStats).forEach(k=>delete battingStats[k]);
+        Object.keys(pitchingStats).forEach(k=>delete pitchingStats[k]);
+        render();
+        toast('已清空所有打擊/投手數據');
+        return;
+      }
       if(act==='addAccount'){ toast('這台裝置僅支援單一本機帳號,多人共用需接上第 6 點的雲端同步'); return; }
       if(act==='logout'){ doLogout(); return; }
       if(act==='doLogin'){ doLogin(); return; }
