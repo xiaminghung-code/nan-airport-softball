@@ -379,7 +379,14 @@ function isLoggedIn(){ return !syncEnabled || !!session; } // 沒接雲端同步
 async function loadProfile(){
   if(!session) { currentProfile = null; return; }
   const { data } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
-  currentProfile = data || null;
+  if(data){ currentProfile = data; return; }
+  // 這個帳號登入成功了但還沒有 profile(通常是註冊時信箱還沒驗證,建立身分那步被擋下來)
+  // 現在已經是登入狀態,補建一筆:第一個補建的人自動當管理者
+  const { count } = await sb.from('profiles').select('*', {count:'exact', head:true});
+  const role = (count===0) ? 'admin' : 'member';
+  const name = session.user.user_metadata?.name || session.user.email.split('@')[0];
+  const { data: created } = await sb.from('profiles').upsert({ id: session.user.id, name, role }).select().maybeSingle();
+  currentProfile = created || { id: session.user.id, name, role };
 }
 
 async function initAuth(){
@@ -414,21 +421,17 @@ async function doSignup(){
   if(!name || !email || !pw){ authError = '姓名、Email、密碼都要填'; render(); return; }
   if(pw.length < 6){ authError = '密碼至少要 6 碼'; render(); return; }
   authBusy = true; authError=''; render();
-  const { data, error } = await sb.auth.signUp({ email, password: pw });
-  if(error){ authBusy=false; authError = '註冊失敗:' + (error.message||''); render(); return; }
-  if(!data.user){ authBusy=false; authError = '註冊失敗,請再試一次'; render(); return; }
-  // 判斷是不是第一個註冊的人,是的話自動當管理者
-  const { count } = await sb.from('profiles').select('*', {count:'exact', head:true});
-  const role = (count===0) ? 'admin' : 'member';
-  await sb.from('profiles').upsert({ id: data.user.id, name, role });
+  const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { name } } });
   authBusy = false;
+  if(error){ authError = '註冊失敗:' + (error.message||''); render(); return; }
+  if(!data.user){ authError = '註冊失敗,請再試一次'; render(); return; }
   if(!data.session){
-    authError = '註冊成功!你的 Supabase 專案可能開著 Email 驗證,請先去信箱點確認信,再回來登入。';
+    authError = '註冊成功!你的 Supabase 專案開著 Email 驗證,請先去信箱點確認信,再回來登入(身分會在第一次登入成功時自動建立)。';
     authView = 'login';
     render();
     return;
   }
-  // 有 session 代表不需要驗證信,onAuthStateChange 會自動登入並載入資料
+  // 有 session 代表不需要驗證信,onAuthStateChange 會自動登入並建立身分
 }
 
 async function doLogout(){
@@ -1367,7 +1370,7 @@ function bindDynamicHandlers(){
     el.addEventListener('click', ()=>{ rankTab = el.dataset.ranktab; render(); });
   });
   const statSel = document.getElementById('statPlayerSel');
-  if(statSel) statSel.addEventListener('change', ()=>{ selectedStatPlayer = statSel.value; });
+  if(statSel) statSel.addEventListener('change', ()=>{ selectedStatPlayer = statSel.value; render(); });
 
   app.querySelectorAll('[data-order-ns]').forEach(el=>{
     el.addEventListener('change', ()=>{
