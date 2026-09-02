@@ -1411,6 +1411,10 @@ function opponentColor(name){
   for(let i=0;i<name.length;i++){ hash = (hash*31 + name.charCodeAt(i)) >>> 0; }
   return oppColorPalette[hash % oppColorPalette.length];
 }
+function orphanGameRecords(){
+  const linkedIds = new Set(schedule.map(s=>s.historyId).filter(Boolean));
+  return gameHistory.filter(r=>!linkedIds.has(r.id)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+}
 function viewSchedule(){
   const opponents = knownOpponents();
   const places = knownPlaces();
@@ -1467,6 +1471,24 @@ function viewSchedule(){
         </div>`).join('') : emptyState('尚無賽程')}
     </div>
   </section>
+
+  ${(()=>{ const orphans = orphanGameRecords(); return orphans.length ? `
+  <section>
+    <div class="section-title">🔗 沒有連結賽程的比賽紀錄</div>
+    <div class="card">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6;">這幾場是用「自訂輸入對手」記錄的,不在上面的賽程清單裡,但數據還是算進球季總數。點進去可以看詳細內容或刪除。</div>
+      ${orphans.map(g=>`
+        <div class="sched-item" data-gamelog-id="${g.id}" style="cursor:pointer;">
+          <span class="sched-tag ${g.type==='聯賽'?'league':'cup'}">${g.type}</span>
+          <div style="flex:1;min-width:0;">
+            <div class="matchup"><span class="opp-dot" style="background:${opponentColor(g.opp)};"></span>南機場 vs ${g.opp} <span style="color:var(--header2);">${g.us}:${g.them}</span></div>
+            <div class="meta">${g.date||'日期未填'}${g.time?' '+g.time:''}</div>
+          </div>
+          <span style="color:var(--muted);font-size:12px;">›</span>
+        </div>`).join('')}
+    </div>
+  </section>
+  ` : ''; })()}
   `;
 }
 
