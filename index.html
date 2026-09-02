@@ -72,16 +72,19 @@
     background:var(--card);
     margin:0 16px;
     margin-top:-18px;
-    border-radius:14px;
-    box-shadow:0 6px 18px rgba(18,39,68,.12);
+    border-radius:16px;
+    box-shadow:0 8px 22px rgba(18,39,68,.14);
     overflow:hidden;
     position:relative;
     z-index:2;
   }
-  .stat-band .col{flex:1;text-align:center;padding:14px 6px;}
+  .stat-band .col{flex:1;text-align:center;padding:14px 6px;position:relative;}
   .stat-band .col + .col{border-left:1px solid var(--line);}
-  .stat-band .lbl{font-size:11px;color:var(--muted);}
-  .stat-band .val{font-size:17px;font-weight:900;margin-top:4px;}
+  .stat-band .lbl{font-size:10.5px;color:var(--muted);letter-spacing:.02em;}
+  .stat-band .val{font-size:18px;font-weight:900;margin-top:5px;}
+  .stat-band .col.rank .val{background:linear-gradient(135deg,var(--accent),#F2A93B);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .winrate-bar{height:4px;border-radius:3px;background:var(--line);margin-top:7px;overflow:hidden;}
+  .winrate-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--header2),var(--accent));border-radius:3px;}
 
   main{padding:26px 16px 8px;}
   section{margin-bottom:20px;}
@@ -91,9 +94,10 @@
 
   .card{
     background:var(--card);
-    border-radius:14px;
+    border-radius:16px;
     padding:16px;
-    box-shadow:0 1px 4px rgba(18,39,68,.05);
+    box-shadow:0 2px 10px rgba(18,39,68,.06);
+    border:1px solid rgba(18,39,68,.03);
   }
 
   .empty-state{padding:20px 4px;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.7;}
@@ -119,9 +123,13 @@
     padding:7px 10px;font-size:13px;font-family:'Noto Sans TC',sans-serif;color:var(--ink);
   }
   .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
-  .stat-box{background:var(--chip);border-radius:10px;padding:12px 8px;text-align:center;}
+  .stat-box{background:var(--chip);border-radius:12px;padding:12px 8px;text-align:center;}
   .stat-box .lbl{font-size:11px;color:var(--muted);}
   .stat-box .val{font-size:17px;font-weight:900;margin-top:4px;}
+  .stat-box.hero{background:linear-gradient(135deg,var(--header1),var(--header2));grid-column:span 3;padding:16px 8px;position:relative;overflow:hidden;}
+  .stat-box.hero::after{content:'';position:absolute;right:-18px;top:-18px;width:70px;height:70px;border-radius:50%;background:rgba(255,255,255,.08);}
+  .stat-box.hero .lbl{color:#B9CBE0;}
+  .stat-box.hero .val{font-size:30px;color:#fff;letter-spacing:.01em;}
 
   /* standings */
   .team-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);}
@@ -153,6 +161,15 @@
   .rank-row .name .n{font-size:14px;font-weight:700;}
   .rank-row .name .t{font-size:11px;color:var(--accent);font-weight:600;margin-top:2px;}
   .rank-row .v{font-size:19px;font-weight:900;}
+  .rank-row.top1,.rank-row.top2,.rank-row.top3{margin:0 -16px;padding:11px 16px;border-radius:10px;}
+  .rank-row.top1{background:linear-gradient(90deg,rgba(255,196,54,.14),transparent 80%);}
+  .rank-row.top2{background:linear-gradient(90deg,rgba(180,190,204,.16),transparent 80%);}
+  .rank-row.top3{background:linear-gradient(90deg,rgba(201,122,61,.13),transparent 80%);}
+  .rank-row.top1 .badge{width:32px;height:32px;font-size:14px;background:linear-gradient(135deg,#FFD65C,#F2A93B) !important;color:#7A4B00;box-shadow:0 3px 8px rgba(242,169,59,.45);}
+  .rank-row.top2 .badge{width:32px;height:32px;font-size:14px;background:linear-gradient(135deg,#EDEFF3,#B9C2CF) !important;color:#4B5563;box-shadow:0 3px 8px rgba(140,150,165,.4);}
+  .rank-row.top3 .badge{width:32px;height:32px;font-size:14px;background:linear-gradient(135deg,#E3A272,#C97A3D) !important;color:#4A2408;box-shadow:0 3px 8px rgba(201,122,61,.4);}
+  .rank-row.top1 .n{font-weight:900;}
+  .rank-row .crown{margin-right:3px;}
 
   /* schedule */
   .form-row{margin-bottom:10px;}
@@ -212,10 +229,13 @@
   .bases-mini .b3{left:0;bottom:10px;}
   .bases-label{font-size:10px;color:var(--muted);text-align:center;margin-bottom:8px;}
   .linescore{width:100%;border-collapse:collapse;font-size:11.5px;}
-  .linescore th,.linescore td{padding:5px 7px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap;}
-  .linescore th{color:var(--muted);font-weight:600;}
+  .linescore th,.linescore td{padding:6px 8px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .linescore th{color:var(--muted);font-weight:700;font-size:10.5px;}
   .linescore td:first-child,.linescore th:first-child{text-align:left;font-weight:700;padding-left:2px;}
+  .linescore tr.live-row{background:var(--accent-soft);}
   .linescore tr.live-row td:first-child{color:var(--accent);}
+  .linescore td:last-child,.linescore th:last-child{background:var(--chip);font-weight:900;border-left:1.5px solid var(--line);}
+  .linescore td.cur-inning{background:rgba(242,128,30,.12);border-radius:4px;}
   .panel-disabled{opacity:.4;pointer-events:none;}
 
   .field-wrap{position:relative;width:100%;max-width:300px;margin:6px auto 0;aspect-ratio:300/320;border-radius:12px;overflow:hidden;}
@@ -254,8 +274,9 @@
     background:#fff;display:flex;padding:8px 6px calc(8px + env(safe-area-inset-bottom));
     z-index:20;box-shadow:0 -2px 12px rgba(18,39,68,.08);
   }
-  nav.bottom button{flex:1;background:none;border:none;color:#9AA6BB;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;font-family:'Noto Sans TC',sans-serif;padding:6px 0;cursor:pointer;}
+  nav.bottom button{flex:1;background:none;border:none;color:#9AA6BB;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;font-family:'Noto Sans TC',sans-serif;padding:6px 0;cursor:pointer;position:relative;}
   nav.bottom button.active{color:var(--header2);font-weight:700;}
+  nav.bottom button.active::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:22px;height:3px;border-radius:0 0 3px 3px;background:linear-gradient(90deg,var(--header2),var(--accent));}
   nav.bottom .icon{font-size:17px;}
 
   .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:100px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:30;white-space:nowrap;}
@@ -933,10 +954,12 @@ function emptyState(title, sub){
 
 function renderStatBand(){
   const me = standings.find(s=>s.me);
+  const total = (me.w||0)+(me.l||0)+(me.t||0);
+  const winPct = total ? Math.round((me.w/total)*100) : 0;
   document.getElementById('statBand').innerHTML = `
-    <div class="col"><div class="lbl">聯賽</div><div class="val">${me.w}勝 ${me.l}敗</div></div>
+    <div class="col"><div class="lbl">聯賽</div><div class="val">${me.w}勝 ${me.l}敗</div><div class="winrate-bar"><i style="width:${winPct}%;"></i></div></div>
     <div class="col"><div class="lbl">盃賽合計</div><div class="val">0勝 0敗</div></div>
-    <div class="col"><div class="lbl">聯賽排名</div><div class="val">#${me.rank}</div></div>
+    <div class="col rank"><div class="lbl">聯賽排名</div><div class="val">#${me.rank}</div></div>
   `;
 }
 
@@ -986,7 +1009,7 @@ function viewHome(){
         <select id="statPlayerSel">${activeRoster().map(p=>`<option value="${p.name}" ${p.name===selectedStatPlayer?'selected':''}>#${p.no} ${p.name}</option>`).join('')}</select>
       </div>
       <div class="stat-grid">
-        <div class="stat-box"><div class="lbl">打擊率</div><div class="val">${avgOf(season.bat,selectedStatPlayer)}</div></div>
+        <div class="stat-box hero"><div class="lbl">打擊率</div><div class="val">${avgOf(season.bat,selectedStatPlayer)}</div></div>
         <div class="stat-box"><div class="lbl">安打</div><div class="val">${myBat.H}</div></div>
         <div class="stat-box"><div class="lbl">全壘打</div><div class="val">${myBat.HR}</div></div>
         <div class="stat-box"><div class="lbl">打數</div><div class="val">${myBat.AB}</div></div>
@@ -1194,9 +1217,9 @@ function statsRank(){
     <div class="subtabs">${tabs.map(([k,l])=>`<button data-ranktab="${k}" class="${rankTab===k?'active':''}">${l}</button>`).join('')}</div>
     <div class="card">
       ${rows.length ? rows.map((p,i)=>`
-        <div class="rank-row">
+        <div class="rank-row ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
           <div class="badge" style="background:${p.color||'#8592A8'}">${i+1}</div>
-          <div class="name"><div class="n">${p.name}</div><div class="t">${p.team}</div></div>
+          <div class="name"><div class="n">${i===0?'<span class="crown">👑</span>':''}${p.name}</div><div class="t">${p.team}</div></div>
           <div class="v">${p.val}</div>
         </div>`).join('') : emptyState('尚無排行資料','<div style="margin-top:2px;">開始記錄比賽後會自動統計</div>')}
     </div>
@@ -1508,11 +1531,12 @@ function renderLineScore(g){
     if(i===g.inning-1 && g.half===side) return 0; // 這半局進行中還沒得分
     return '';
   };
+  const curCls = i => i===g.inning-1 ? 'cur-inning' : '';
   return `
     <table class="linescore">
       <tr><th></th>${Array.from({length:cols},(_,i)=>`<th>${i+1}</th>`).join('')}<th>R</th></tr>
-      <tr class="${g.half==='us'?'live-row':''}"><td>南機場</td>${Array.from({length:cols},(_,i)=>`<td>${cell(i,'us')}</td>`).join('')}<td><b>${g.us}</b></td></tr>
-      <tr class="${g.half==='them'?'live-row':''}"><td>${g.opp}</td>${Array.from({length:cols},(_,i)=>`<td>${cell(i,'them')}</td>`).join('')}<td><b>${g.them}</b></td></tr>
+      <tr class="${g.half==='us'?'live-row':''}"><td>南機場</td>${Array.from({length:cols},(_,i)=>`<td class="${curCls(i)}">${cell(i,'us')}</td>`).join('')}<td><b>${g.us}</b></td></tr>
+      <tr class="${g.half==='them'?'live-row':''}"><td>${g.opp}</td>${Array.from({length:cols},(_,i)=>`<td class="${curCls(i)}">${cell(i,'them')}</td>`).join('')}<td><b>${g.them}</b></td></tr>
     </table>
   `;
 }
