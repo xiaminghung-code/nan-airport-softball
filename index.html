@@ -644,6 +644,43 @@ function eraOf(store, name){
   const innings = s.outs/3;
   return (s.ER/innings*7).toFixed(2); // 七局制簡易換算,可自行調整
 }
+function playerGameLog(name){
+  return gameHistory
+    .filter(rec => (rec.box.bat && rec.box.bat[name]) || (rec.box.pitch && rec.box.pitch[name]))
+    .map(rec => ({ id:rec.id, date:rec.date, time:rec.time, opp:rec.opp, type:rec.type, bat:rec.box.bat?.[name], pitch:rec.box.pitch?.[name] }))
+    .sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+}
+function renderPlayerGameLog(name){
+  const log = playerGameLog(name);
+  const rows = [];
+  const b = battingStats[name], p = pitchingStats[name];
+  const hasB = b && (b.AB||b.H||b.BB||b.R||b.HR);
+  const hasP = p && (p.outs||p.K||p.H||p.BB||p.R||p.ER||p.W);
+  if(hasB || hasP){
+    rows.push(`<div class="sched-item">
+      <span class="sched-tag" style="background:var(--chip);color:var(--muted);">校正</span>
+      <div style="flex:1;min-width:0;">
+        <div class="matchup">手動校正值(不屬於任何一場比賽)</div>
+        <div class="meta">${hasB?`打:${b.AB}打數 ${b.H}安打 ${b.HR}轟 ${b.BB}保送 ${b.R}得分`:''}${hasP?` 投:${Math.floor(p.outs/3)}.${p.outs%3}局 ${p.H}被安打 ${p.K}三振 ${p.ER}自責分`:''}</div>
+      </div>
+    </div>`);
+  }
+  log.forEach(g=>{
+    const parts = [];
+    if(g.bat) parts.push(`打:${g.bat.AB}打數 ${g.bat.H}安打${g.bat.HR?` ${g.bat.HR}轟`:''} ${g.bat.BB}保送 ${g.bat.R}得分`);
+    if(g.pitch) parts.push(`投:${Math.floor(g.pitch.outs/3)}.${g.pitch.outs%3}局 ${g.pitch.H}被安打 ${g.pitch.K}三振 ${g.pitch.ER}自責分`);
+    rows.push(`<div class="sched-item" data-gamelog-id="${g.id}" style="cursor:pointer;">
+      <span class="sched-tag ${g.type==='聯賽'?'league':'cup'}">${g.type}</span>
+      <div style="flex:1;min-width:0;">
+        <div class="matchup">南機場 vs ${g.opp}</div>
+        <div class="meta">${g.date||''}${g.time?' '+g.time:''} · ${parts.join(' · ')}</div>
+      </div>
+      <span style="color:var(--muted);font-size:12px;">›</span>
+    </div>`);
+  });
+  if(!rows.length) return emptyState('這位球員還沒有任何比賽紀錄或校正值');
+  return `<div style="margin-top:6px;">${rows.join('')}</div>`;
+}
 
 function newLiveState(opp, battingFirst, scheduleIdx){
   return {
@@ -869,6 +906,7 @@ let showAddPlayerForm = false;
 let leagueName = '好樣聯盟';
 let totalGames = 10;
 let lineupExpanded = { lg:true, cup:true };
+let gameLogExpanded = false;
 
 function toast(msg){
   const t = document.getElementById('toast');
@@ -944,6 +982,11 @@ function viewHome(){
         <div class="stat-box"><div class="lbl">保送</div><div class="val">${myBat.BB}</div></div>
         <div class="stat-box"><div class="lbl">得分</div><div class="val">${myBat.R}</div></div>
       </div>
+      <div class="section-head" style="margin-top:14px;">
+        <span style="font-size:12px;color:var(--muted);">單場紀錄(這個人數字是怎麼加出來的)</span>
+        <a data-action="toggleGameLog">${gameLogExpanded?'收起 ▲':'展開 ▼'}</a>
+      </div>
+      ${gameLogExpanded ? renderPlayerGameLog(selectedStatPlayer) : ''}
     </div>
   </section>
 
@@ -1685,6 +1728,11 @@ function bindDynamicHandlers(){
       if(s && s.historyId){ viewingGameId = s.historyId; currentView = 'gameDetail'; setActiveNav(); render(); window.scrollTo(0,0); }
     });
   });
+  app.querySelectorAll('[data-gamelog-id]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      viewingGameId = el.dataset.gamelogId; currentView = 'gameDetail'; setActiveNav(); render(); window.scrollTo(0,0);
+    });
+  });
   app.querySelectorAll('[data-rec]').forEach(el=>{
     el.addEventListener('click', ()=>{ recordBat(el.dataset.ns, el.dataset.rec); });
   });
@@ -1713,6 +1761,7 @@ function bindDynamicHandlers(){
         render(); return;
       }
       if(act==='toggleLineup'){ lineupExpanded[el.dataset.ns] = !lineupExpanded[el.dataset.ns]; render(); return; }
+      if(act==='toggleGameLog'){ gameLogExpanded = !gameLogExpanded; render(); return; }
       if(act==='showCreateCup'){ if(!requireAdmin())return; showCupForm = true; render(); return; }
       if(act==='confirmCreateCup'){
         if(!requireAdmin())return;
