@@ -259,22 +259,16 @@
   .pos-badge .pn{font-size:11.5px;font-weight:700;color:var(--ink);margin-top:1px;white-space:nowrap;}
   .pos-badge.rover .pk{color:var(--accent);}
 
-  .order-tile{background:var(--chip);border-radius:12px;padding:10px;margin-bottom:8px;transition:background .2s;}
-  .order-tile.at-bat{background:var(--accent-soft);box-shadow:0 0 0 2px var(--accent) inset;}
-  .order-tile.at-bat .ord-no{background:var(--accent);box-shadow:0 0 0 3px rgba(242,128,30,.22);}
-  .tile-head{display:flex;align-items:center;gap:8px;}
-  .ord-no{font-weight:900;font-size:12.5px;color:#fff;background:var(--header2);width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-  .tile-head select{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:13px;font-family:'Noto Sans TC',sans-serif;background:var(--card);color:var(--ink);}
+  .order-row{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--line);border-radius:8px;transition:background .2s;}
+  .order-row:last-child{border-bottom:none;}
+  .order-row.at-bat{background:var(--accent-soft);margin:0 -8px;padding:7px 8px;}
+  .order-row.at-bat .ord-no{background:var(--accent);box-shadow:0 0 0 3px rgba(242,128,30,.22);}
+  .ord-no{font-weight:900;font-size:12px;color:#fff;background:var(--header2);width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .order-row select{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:8px 6px;font-size:12.5px;font-family:'Noto Sans TC',sans-serif;background:var(--card);color:var(--ink);}
   .move-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0;}
-  .move-btn{width:26px;height:19px;border:1px solid var(--line);background:var(--card);border-radius:5px;color:var(--header2);font-size:10px;line-height:1;cursor:pointer;padding:0;}
+  .move-btn{width:22px;height:17px;border:1px solid var(--line);background:var(--card);border-radius:5px;color:var(--header2);font-size:9px;line-height:1;cursor:pointer;padding:0;}
   .move-btn:disabled{opacity:.3;}
   .move-btn:active:not(:disabled){transform:scale(.9);background:var(--accent-soft);}
-  .pos-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
-  .pos-chip{border:1px solid var(--line);background:var(--card);color:var(--muted);font-size:11px;font-weight:700;padding:5px 9px;border-radius:7px;cursor:pointer;font-family:'Noto Sans TC',sans-serif;}
-  .pos-chip.active{background:var(--header2);border-color:var(--header2);color:#fff;}
-  .pos-chip.ep.active{background:var(--accent);border-color:var(--accent);}
-  .pos-chip:disabled{opacity:.3;cursor:not-allowed;}
-  .pos-chip:active:not(:disabled){transform:scale(.94);}
 
   .guest-row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);}
   .guest-row:last-child{border-bottom:none;}
@@ -1634,32 +1628,23 @@ function renderBattingOrder(orderArr, pool, ns, curIdx){
   const filled = orderArr.filter(r=>r.player).length;
   const expanded = lineupExpanded[ns];
   return `
-    <div class="section-head" style="margin-bottom:${expanded?'10px':'0'};">
+    <div class="section-head" style="margin-bottom:${expanded?'8px':'0'};">
       <span style="font-size:12px;color:var(--muted);">已排 ${filled} / ${orderArr.length} 棒</span>
       <a data-action="toggleLineup" data-ns="${ns}">${expanded?'收起 ▲':'展開 ▼'}</a>
     </div>
     ${expanded ? `
-      ${orderArr.map((row,i)=>{
-        const used = usedPositions(orderArr, i);
-        return `
-        <div class="order-tile ${curIdx!=null && i===curIdx ? 'at-bat':''}">
-          <div class="tile-head">
-            <div class="ord-no">${i+1}</div>
-            <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="player">${playerOptions(row.player, pool, usedPlayers(orderArr,i))}</select>
-            <div class="move-btns">
-              <button class="move-btn" data-move="up" data-order-ns="${ns}" data-order-idx="${i}" ${i===0?'disabled':''} aria-label="上移">▲</button>
-              <button class="move-btn" data-move="down" data-order-ns="${ns}" data-order-idx="${i}" ${i===orderArr.length-1?'disabled':''} aria-label="下移">▼</button>
-            </div>
+      ${orderArr.map((row,i)=>`
+        <div class="order-row ${curIdx!=null && i===curIdx ? 'at-bat':''}">
+          <div class="ord-no">${i+1}</div>
+          <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="player">${playerOptions(row.player, pool, usedPlayers(orderArr,i))}</select>
+          <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="pos">${posOptions(row.pos, usedPositions(orderArr,i))}</select>
+          <div class="move-btns">
+            <button class="move-btn" data-move="up" data-order-ns="${ns}" data-order-idx="${i}" ${i===0?'disabled':''} aria-label="上移">▲</button>
+            <button class="move-btn" data-move="down" data-order-ns="${ns}" data-order-idx="${i}" ${i===orderArr.length-1?'disabled':''} aria-label="下移">▼</button>
           </div>
-          <div class="pos-chips">
-            <button class="pos-chip ${!row.pos?'active':''}" data-order-ns="${ns}" data-order-idx="${i}" data-pos-pick="">無</button>
-            ${fieldPositions.map(p=>`<button class="pos-chip ${row.pos===p.key?'active':''}" data-order-ns="${ns}" data-order-idx="${i}" data-pos-pick="${p.key}" ${used.includes(p.key)?'disabled':''}>${p.rover?'ROV':p.key}</button>`).join('')}
-            <button class="pos-chip ep ${row.pos==='EP'?'active':''}" data-order-ns="${ns}" data-order-idx="${i}" data-pos-pick="EP">EP</button>
-          </div>
-        </div>`;
-      }).join('')}
+        </div>`).join('')}
       <button class="btn-outline" data-action="addBatter" data-ns="${ns}">+ 新增打者</button>
-      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">用 ▲▼ 調整棒次順序,守位直接點方塊選;同一個守位不會出現在別列(EP 例外,可以選很多人)。</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">選好打者跟守位,右邊 ▲▼ 可以直接跟上/下一棒交換順序。同一個守位不會出現在別列(EP 例外)。</div>
     ` : ''}
   `;
 }
