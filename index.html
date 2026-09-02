@@ -307,6 +307,9 @@
    create policy "read all profiles" on profiles for select using (true);
    create policy "insert own profile" on profiles for insert with check (auth.uid() = id);
    create policy "update own profile" on profiles for update using (auth.uid() = id);
+   create policy "admins can update any profile" on profiles for update using (
+     exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'admin')
+   );
 
    Supabase 的 Authentication 設定裡,建議把 Email 驗證(Confirm email)
    關掉,不然每個隊員註冊完都要先去信箱點確認信才能登入,對球隊用途來說
@@ -378,6 +381,7 @@ function initSync(){
 /* ---------- 帳號 / 權限 ---------- */
 let session = null;
 let currentProfile = null;   // {id, name, role}
+let allProfiles = [];        // 所有已註冊隊員(管理者查看用)
 let authView = 'login';      // 'login' | 'signup'
 let authError = '';
 let authBusy = false;
@@ -413,6 +417,27 @@ async function saveLinkedPlayer(){
   }
   toast(val ? `已連結到 ${val}` : '已取消連結');
   render();
+}
+
+async function refreshMembers(){
+  if(!syncEnabled) return;
+  try{
+    const { data } = await sb.from('profiles').select('*').order('created_at');
+    allProfiles = data || [];
+  }catch(e){ console.warn('讀取隊員清單失敗', e); }
+  render();
+}
+
+async function toggleMemberRole(id, currentRole){
+  if(!requireAdmin()) return;
+  const newRole = currentRole==='admin' ? 'member' : 'admin';
+  const ok = confirm(newRole==='admin' ? '確定要把這個人設成管理者嗎?他之後能編輯所有資料。' : '確定要把這個人降回一般隊員嗎?');
+  if(!ok) return;
+  try{
+    await sb.from('profiles').update({ role: newRole }).eq('id', id);
+    toast('已更新權限');
+    await refreshMembers();
+  }catch(e){ toast('更新失敗,請確認 Supabase 權限規則有設定好'); }
 }
 
 async function initAuth(){
@@ -1536,6 +1561,22 @@ function viewSettings(){
 
   ${isAdmin() ? `
   <section>
+    <div class="section-head"><div class="section-title" style="margin:0;">隊員管理</div><a data-action="refreshMembers">重新整理</a></div>
+    <div class="card" style="padding:4px 16px;">
+      ${allProfiles.length ? allProfiles.map(m=>`
+        <div class="roster-row">
+          <div class="rinfo">
+            <div class="rname">${m.name}${m.id===session.user.id?' <span style="color:var(--muted);font-size:11px;">(我)</span>':''}</div>
+            <div class="rmeta">${m.role==='admin'?'管理者':'一般隊員'}${m.player_name?' · 連結:'+m.player_name:''}</div>
+          </div>
+          ${m.id!==session.user.id ? `<button class="btn-ghost-sm" data-action="toggleRole" data-id="${m.id}" data-role="${m.role}">${m.role==='admin'?'降為隊員':'設為管理者'}</button>` : ''}
+        </div>`).join('') : `<div class="empty-state" style="padding:14px 0;">按上面「重新整理」載入隊員清單</div>`}
+    </div>
+  </section>
+  ` : ''}
+
+  ${isAdmin() ? `
+  <section>
     <div class="section-title">危險區域</div>
     <div class="card">
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">把所有球員的打擊/投手累積數據清空歸零(測試資料清乾淨用),賽程、名單、戰績都不會動。這個動作沒辦法復原。</div>
@@ -1554,6 +1595,7 @@ function bindDynamicHandlers(){
       if(el.dataset.sub) statsSubtab = el.dataset.sub;
       if(el.dataset.recns) recordNs = el.dataset.recns;
       setActiveNav(); render(); window.scrollTo(0,0);
+      if(currentView==='settings' && isAdmin() && !allProfiles.length) refreshMembers();
     });
   });
   app.querySelectorAll('[data-statsub]').forEach(el=>{
@@ -1762,6 +1804,8 @@ function bindDynamicHandlers(){
         toast('已清空所有打擊/投手數據');
         return;
       }
+      if(act==='refreshMembers'){ refreshMembers(); return; }
+      if(act==='toggleRole'){ toggleMemberRole(el.dataset.id, el.dataset.role); return; }
       if(act==='addAccount'){ toast('這台裝置僅支援單一本機帳號,多人共用需接上第 6 點的雲端同步'); return; }
       if(act==='logout'){ doLogout(); return; }
       if(act==='doLogin'){ doLogin(); return; }
@@ -1789,6 +1833,7 @@ document.getElementById('bottomNav').addEventListener('click', (e)=>{
   btn.classList.add('active');
   render();
   window.scrollTo(0,0);
+  if(currentView==='settings' && isAdmin() && !allProfiles.length) refreshMembers();
 });
 
 initSync();
