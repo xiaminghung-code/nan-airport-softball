@@ -279,7 +279,7 @@
    要讓全隊看到同一份、跨裝置同步,去 supabase.com 建一個免費專案,
    在 SQL Editor 貼上下面這段建表,再把 Project URL 和 anon public key
    填進 SYNC_URL / SYNC_KEY,重新整理就會自動連上、多人共用。
-   沒填的話 App 完全正常運作,只是資料只存在這台裝置。
+   沒填的話 App 完全正常運作,只是資料只存在這台裝置,也不需要登入。
 
    create table team_state (
      id text primary key,
@@ -288,6 +288,21 @@
    );
    alter table team_state enable row level security;
    create policy "public read/write" on team_state for all using (true) with check (true);
+
+   create table profiles (
+     id uuid primary key references auth.users(id) on delete cascade,
+     name text,
+     role text default 'member',
+     created_at timestamptz default now()
+   );
+   alter table profiles enable row level security;
+   create policy "read all profiles" on profiles for select using (true);
+   create policy "insert own profile" on profiles for insert with check (auth.uid() = id);
+   create policy "update own profile" on profiles for update using (auth.uid() = id);
+
+   Supabase 的 Authentication 設定裡,建議把 Email 驗證(Confirm email)
+   關掉,不然每個隊員註冊完都要先去信箱點確認信才能登入,對球隊用途來說
+   比較麻煩。位置在 Authentication -> Providers -> Email -> Confirm email。
 ------------------------------------------------ */
 const SYNC_URL = "https://pxqnltrddisszrplzwrr.supabase.co";
 const SYNC_KEY = "sb_publishable_sdxUKboRLSF00TxU3v_QVw_qqZMP5Zt";
@@ -344,15 +359,110 @@ function initSync(){
   syncEnabled = true;
   document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') flushCloudSaveNow(); });
   window.addEventListener('pagehide', flushCloudSaveNow);
-  cloudLoad().then(()=>{
+  sb.channel('team-state-changes')
+    .on('postgres_changes', {event:'*', schema:'public', table:'team_state', filter:`id=eq.${SYNC_ROW_ID}`}, payload=>{
+      if(payload.new && payload.new.data){ applyCloudData(payload.new.data); render(); }
+    })
+    .subscribe();
+}
+
+/* ---------- 帳號 / 權限 ---------- */
+let session = null;
+let currentProfile = null;   // {id, name, role}
+let authView = 'login';      // 'login' | 'signup'
+let authError = '';
+let authBusy = false;
+
+function isAdmin(){ return !!(currentProfile && currentProfile.role === 'admin'); }
+function isLoggedIn(){ return !syncEnabled || !!session; } // 沒接雲端同步就不需要登入,單機模式照舊
+
+async function loadProfile(){
+  if(!session) { currentProfile = null; return; }
+  const { data } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+  currentProfile = data || null;
+}
+
+async function initAuth(){
+  if(!syncEnabled) { render(); return; }
+  await cloudLoad();
+  const { data } = await sb.auth.getSession();
+  session = data.session;
+  if(session) await loadProfile();
+  render();
+  sb.auth.onAuthStateChange(async (event, s)=>{
+    session = s;
+    if(session) await loadProfile(); else currentProfile = null;
     render();
-    sb.channel('team-state-changes')
-      .on('postgres_changes', {event:'*', schema:'public', table:'team_state', filter:`id=eq.${SYNC_ROW_ID}`}, payload=>{
-        if(payload.new && payload.new.data){ applyCloudData(payload.new.data); render(); }
-      })
-      .subscribe();
   });
 }
+
+async function doLogin(){
+  const email = document.getElementById('authEmail')?.value.trim();
+  const pw = document.getElementById('authPassword')?.value;
+  if(!email || !pw){ authError = '請輸入 Email 跟密碼'; render(); return; }
+  authBusy = true; authError=''; render();
+  const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+  authBusy = false;
+  if(error){ authError = '登入失敗:' + (error.message||'帳號或密碼錯誤'); render(); return; }
+  // onAuthStateChange 會接手 loadProfile + render
+}
+
+async function doSignup(){
+  const name = document.getElementById('authName')?.value.trim();
+  const email = document.getElementById('authEmail')?.value.trim();
+  const pw = document.getElementById('authPassword')?.value;
+  if(!name || !email || !pw){ authError = '姓名、Email、密碼都要填'; render(); return; }
+  if(pw.length < 6){ authError = '密碼至少要 6 碼'; render(); return; }
+  authBusy = true; authError=''; render();
+  const { data, error } = await sb.auth.signUp({ email, password: pw });
+  if(error){ authBusy=false; authError = '註冊失敗:' + (error.message||''); render(); return; }
+  if(!data.user){ authBusy=false; authError = '註冊失敗,請再試一次'; render(); return; }
+  // 判斷是不是第一個註冊的人,是的話自動當管理者
+  const { count } = await sb.from('profiles').select('*', {count:'exact', head:true});
+  const role = (count===0) ? 'admin' : 'member';
+  await sb.from('profiles').upsert({ id: data.user.id, name, role });
+  authBusy = false;
+  if(!data.session){
+    authError = '註冊成功!你的 Supabase 專案可能開著 Email 驗證,請先去信箱點確認信,再回來登入。';
+    authView = 'login';
+    render();
+    return;
+  }
+  // 有 session 代表不需要驗證信,onAuthStateChange 會自動登入並載入資料
+}
+
+async function doLogout(){
+  if(!syncEnabled){ toast('這是單機模式,沒有帳號可以登出'); return; }
+  await sb.auth.signOut();
+  toast('已登出');
+}
+
+function requireAdmin(){
+  if(isAdmin()) return true;
+  toast('只有管理者能做這個操作');
+  return false;
+}
+
+function viewAuth(){
+  return `
+  <div style="padding:32px 20px;">
+    <div class="card">
+      <div class="section-title" style="margin-bottom:4px;">${authView==='login'?'登入球隊帳號':'註冊新帳號'}</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;">南機場壘球隊 · 好樣聯盟</div>
+      ${authError?`<div style="font-size:12px;color:var(--bad);background:#FCEAEA;border-radius:8px;padding:8px 10px;margin-bottom:12px;line-height:1.6;">${authError}</div>`:''}
+      ${authView==='signup'?`<div class="form-row"><label>姓名</label><input id="authName" placeholder="你的姓名(隊友會看到)" /></div>`:''}
+      <div class="form-row"><label>Email</label><input id="authEmail" type="email" autocapitalize="off" placeholder="you@example.com" /></div>
+      <div class="form-row"><label>密碼</label><input id="authPassword" type="password" placeholder="${authView==='signup'?'至少 6 碼':'密碼'}" /></div>
+      <button class="btn-primary" data-action="${authView==='login'?'doLogin':'doSignup'}" ${authBusy?'disabled style="opacity:.6"':''}>${authBusy?'處理中...':(authView==='login'?'登入':'註冊')}</button>
+      <div style="text-align:center;margin-top:12px;font-size:12.5px;color:var(--muted);">
+        ${authView==='login'?'還沒有帳號?':'已經有帳號了?'}
+        <a data-action="toggleAuthView" style="color:var(--header2);font-weight:700;">${authView==='login'?'註冊一個':'登入'}</a>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.6;">第一個註冊的人會自動變成管理者,可以編輯戰績、名單、賽程;之後註冊的人預設是一般隊員,只能看跟記錄比賽。</div>
+  </div>`;
+}
+
 
 /* ---------- 真實資料 ---------- */
 const standings = [
@@ -650,6 +760,14 @@ function renderStatBand(){
 }
 
 function render(){
+  if(!isLoggedIn()){
+    app.innerHTML = viewAuth();
+    document.getElementById('statBand').innerHTML = '';
+    document.getElementById('bottomNav').style.display = 'none';
+    bindDynamicHandlers();
+    return;
+  }
+  document.getElementById('bottomNav').style.display = '';
   if(currentView==='home') app.innerHTML = viewHome();
   if(currentView==='stats') app.innerHTML = viewStats();
   if(currentView==='schedule') app.innerHTML = viewSchedule();
@@ -757,7 +875,7 @@ function viewStats(){
 function statsLeague(){
   return `
     <div class="section-head"><div class="section-title" style="margin:0;">聯賽排名 <span style="font-size:11px;color:var(--muted);font-weight:400;">初階組</span></div>
-    <a data-action="${editingStandings?'saveStandings':'editStandings'}">${editingStandings?'儲存修改':'編輯'}</a></div>
+    ${isAdmin()?`<a data-action="${editingStandings?'saveStandings':'editStandings'}">${editingStandings?'儲存修改':'編輯'}</a>`:''}</div>
     <div class="card">${editingStandings ? renderStandingsEdit(standings) : renderStandingsList(standings, true)}</div>
   `;
 }
@@ -780,17 +898,17 @@ function statsCup(){
     return `
       <div class="card">
         ${emptyState('尚未建立盃賽','<div style="margin-top:2px;">建立後可設定參賽球員、外援、打序與守備陣型</div>')}
-        ${showCupForm ? `
+        ${isAdmin() ? (showCupForm ? `
           <div class="guest-add-row">
             <input id="cupNameInput" placeholder="輸入盃賽名稱" />
             <button data-action="confirmCreateCup">建立</button>
-          </div>` : `<button class="btn-primary" data-action="showCreateCup">建立盃賽</button>`}
+          </div>` : `<button class="btn-primary" data-action="showCreateCup">建立盃賽</button>`) : ''}
       </div>
     `;
   }
   const pool = [...activeRoster().map(p=>p.name), ...guestPlayers.map(g=>g.name)];
   return `
-    <div class="section-head"><div class="section-title" style="margin:0;">${cupInfo.name}</div><a data-action="deleteCup">刪除盃賽</a></div>
+    <div class="section-head"><div class="section-title" style="margin:0;">${cupInfo.name}</div>${isAdmin()?'<a data-action="deleteCup">刪除盃賽</a>':''}</div>
 
     <div class="section-title">盃賽階段</div>
     <div class="stage-row">${cupStages.map(s=>`<div class="stage-pill">${s}</div>`).join('')}</div>
@@ -809,18 +927,19 @@ function statsCup(){
             <div class="guest-row">
               <div class="g-no">${i+1}</div>
               <div class="g-name">${g.name}</div>
+              ${isAdmin()?`
               <div class="g-actions">
                 <button data-guest-up="${i}" ${i===0?'disabled style="opacity:.3"':''}>↑</button>
                 <button data-guest-down="${i}" ${i===guestPlayers.length-1?'disabled style="opacity:.3"':''}>↓</button>
                 <button class="danger" data-guest-remove="${i}">×</button>
-              </div>
+              </div>`:''}
             </div>`).join('')}
         </div>` : `<div class="empty-state" style="padding:12px 0 2px;">尚未新增外援</div>`}
-      ${showGuestForm ? `
+      ${isAdmin() ? (showGuestForm ? `
         <div class="guest-add-row">
           <input id="guestNameInput" placeholder="輸入外援姓名" />
           <button data-action="confirmAddGuest">新增</button>
-        </div>` : `<button class="btn-outline" data-action="showAddGuest">新增外援</button>`}
+        </div>` : `<button class="btn-outline" data-action="showAddGuest">新增外援</button>`) : ''}
     </div>
 
     <div class="section-title" style="margin-top:18px;">參賽球員</div>
@@ -881,6 +1000,7 @@ function statsRank(){
 
 function viewSchedule(){
   return `
+  ${isAdmin() ? `
   <section>
     <div class="section-title">賽程</div>
     <div class="card">
@@ -897,6 +1017,7 @@ function viewSchedule(){
       <button class="btn-primary" data-action="addSchedule">新增賽程</button>
     </div>
   </section>
+  ` : `<div class="section-title">賽程</div>`}
 
   <section>
     <div class="card">
@@ -907,7 +1028,7 @@ function viewSchedule(){
             <div class="matchup">南機場 vs ${g.opp}${g.result?` <span style="color:var(--header2);">${g.result}</span>`:''}${g.historyId?` <span style="color:var(--muted);font-size:11px;">›</span>`:''}</div>
             <div class="meta">${g.date||'日期未定'}${g.time?' '+g.time:''}${g.place?' · '+g.place:''}</div>
           </div>
-          <button class="rm" data-sched-remove="${i}">刪除</button>
+          ${isAdmin()?`<button class="rm" data-sched-remove="${i}">刪除</button>`:''}
         </div>`).join('') : emptyState('尚無賽程')}
     </div>
   </section>
@@ -921,7 +1042,7 @@ function viewRoster(){
   const spares = roster.filter(p=>p.name==="備用");
   return `
   <section>
-    <div class="section-head"><div class="section-title" style="margin:0;">南機場球員</div>${showAddPlayerForm?'':'<a data-action="addPlayer">新增球員</a>'}</div>
+    <div class="section-head"><div class="section-title" style="margin:0;">南機場球員</div>${(isAdmin() && !showAddPlayerForm)?'<a data-action="addPlayer">新增球員</a>':''}</div>
     ${showAddPlayerForm ? `
       <div class="card" style="margin-bottom:10px;">
         <div class="form-row"><label>姓名</label><input id="newPlayerName" placeholder="球員姓名" /></div>
@@ -943,7 +1064,7 @@ function viewRoster(){
             <div class="rmeta">${[p.pos, p.size].filter(Boolean).join(' · ')||'&nbsp;'}</div>
           </div>
           ${p.status?`<span class="status-tag">${p.status}</span>`:''}
-          <span style="color:var(--muted);font-size:12px;">編輯</span>
+          ${isAdmin()?'<span style="color:var(--muted);font-size:12px;">編輯</span>':''}
         </div>`;}).join('')}
     </div>
   </section>
@@ -1204,19 +1325,26 @@ function viewSettings(){
   <section>
     <div class="section-title">賽季設定</div>
     <div class="card">
-      <div class="form-row"><label>我的球員身分</label><input value="夏銘鴻" /></div>
-      <div class="form-row"><label>聯盟名稱</label><input id="settingLeague" value="${leagueName}" /></div>
-      <div class="form-row"><label>每隊聯賽總場次</label><input value="10" /></div>
-      <button class="btn-primary" data-action="saveSettings">儲存賽季設定</button>
+      <div class="form-row"><label>我的球員身分</label><input value="${currentProfile?currentProfile.name:'夏銘鴻'}" disabled style="opacity:.6" /></div>
+      <div class="form-row"><label>聯盟名稱</label><input id="settingLeague" value="${leagueName}" ${isAdmin()?'':'disabled style="opacity:.6"'} /></div>
+      <div class="form-row"><label>每隊聯賽總場次</label><input value="10" ${isAdmin()?'':'disabled style="opacity:.6"'} /></div>
+      ${isAdmin() ? `<button class="btn-primary" data-action="saveSettings">儲存賽季設定</button>` : `<div style="font-size:11px;color:var(--muted);margin-top:6px;">只有管理者能改賽季設定。</div>`}
     </div>
   </section>
 
   <section>
     <div class="section-title">帳號</div>
     <div class="card">
-      <div class="setting-row"><div>夏銘鴻<div class="sub">目前裝置使用中</div></div><a data-action="logout" style="font-size:12px;color:var(--bad);">登出</a></div>
-      <button class="btn-outline" data-action="addAccount">新增帳號</button>
-      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">目前帳號存在這台裝置;多人共用版會改為線上帳號。</div>
+      ${syncEnabled && currentProfile ? `
+        <div class="setting-row">
+          <div>${currentProfile.name}<div class="sub">${session.user.email} · ${isAdmin()?'管理者':'一般隊員'}</div></div>
+          <a data-action="logout" style="font-size:12px;color:var(--bad);">登出</a>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">資料存在雲端,跟隊友即時同步。</div>
+      ` : `
+        <div class="setting-row"><div>夏銘鴻<div class="sub">目前裝置使用中</div></div></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">目前是單機模式,資料只存在這台裝置。</div>
+      `}
     </div>
   </section>
   `;
@@ -1260,6 +1388,7 @@ function bindDynamicHandlers(){
   });
   app.querySelectorAll('[data-guest-up]').forEach(el=>{
     el.addEventListener('click', ()=>{
+      if(!requireAdmin())return;
       const i = +el.dataset.guestUp;
       [guestPlayers[i-1], guestPlayers[i]] = [guestPlayers[i], guestPlayers[i-1]];
       render();
@@ -1267,16 +1396,17 @@ function bindDynamicHandlers(){
   });
   app.querySelectorAll('[data-guest-down]').forEach(el=>{
     el.addEventListener('click', ()=>{
+      if(!requireAdmin())return;
       const i = +el.dataset.guestDown;
       [guestPlayers[i+1], guestPlayers[i]] = [guestPlayers[i], guestPlayers[i+1]];
       render();
     });
   });
   app.querySelectorAll('[data-guest-remove]').forEach(el=>{
-    el.addEventListener('click', ()=>{ guestPlayers.splice(+el.dataset.guestRemove,1); render(); });
+    el.addEventListener('click', ()=>{ if(!requireAdmin())return; guestPlayers.splice(+el.dataset.guestRemove,1); render(); });
   });
   app.querySelectorAll('[data-sched-remove]').forEach(el=>{
-    el.addEventListener('click', ()=>{ schedule.splice(+el.dataset.schedRemove,1); render(); });
+    el.addEventListener('click', ()=>{ if(!requireAdmin())return; schedule.splice(+el.dataset.schedRemove,1); render(); });
   });
   app.querySelectorAll('[data-sched-view]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -1294,13 +1424,14 @@ function bindDynamicHandlers(){
     el.addEventListener('click', ()=>{ pendingBatFirst[el.dataset.ns] = el.dataset.batfirst; render(); });
   });
   app.querySelectorAll('[data-edit-player]').forEach(el=>{
-    el.addEventListener('click', ()=>{ editingPlayerIdx = +el.dataset.editPlayer; render(); window.scrollTo(0,0); });
+    el.addEventListener('click', ()=>{ if(!requireAdmin())return; editingPlayerIdx = +el.dataset.editPlayer; render(); window.scrollTo(0,0); });
   });
   app.querySelectorAll('[data-action]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const act = el.dataset.action;
-      if(act==='showAddGuest'){ showGuestForm = true; render(); return; }
+      if(act==='showAddGuest'){ if(!requireAdmin())return; showGuestForm = true; render(); return; }
       if(act==='confirmAddGuest'){
+        if(!requireAdmin())return;
         const input = document.getElementById('guestNameInput');
         const name = (input?.value||'').trim();
         if(name){ guestPlayers.push({name}); showGuestForm = false; render(); toast(`已新增外援:${name}`); }
@@ -1310,19 +1441,22 @@ function bindDynamicHandlers(){
         if(el.dataset.ns==='cup') cupBattingOrder.push({player:'',pos:''}); else battingOrder.push({player:'',pos:''});
         render(); return;
       }
-      if(act==='showCreateCup'){ showCupForm = true; render(); return; }
+      if(act==='showCreateCup'){ if(!requireAdmin())return; showCupForm = true; render(); return; }
       if(act==='confirmCreateCup'){
+        if(!requireAdmin())return;
         const input = document.getElementById('cupNameInput');
         const name = (input?.value||'').trim();
         if(name){ cupInfo = {name}; showCupForm = false; render(); toast(`已建立盃賽:${name}`); }
         return;
       }
       if(act==='deleteCup'){
+        if(!requireAdmin())return;
         cupInfo = null; cupParticipants = []; cupBattingOrder = new Array(10).fill(null).map(()=>({player:'',pos:''})); cupFieldAssignment = {};
         render(); return;
       }
-      if(act==='editStandings'){ editingStandings = !editingStandings; render(); return; }
+      if(act==='editStandings'){ if(!requireAdmin())return; editingStandings = !editingStandings; render(); return; }
       if(act==='saveStandings'){
+        if(!requireAdmin())return;
         standings.forEach(r=>{
           const w = document.getElementById('sw-'+r.team), l = document.getElementById('sl-'+r.team), t = document.getElementById('st-'+r.team);
           if(w) r.w = +w.value||0;
@@ -1336,8 +1470,9 @@ function bindDynamicHandlers(){
         editingStandings = false; render(); toast('已更新戰績');
         return;
       }
-      if(act==='addPlayer'){ showAddPlayerForm = true; render(); return; }
+      if(act==='addPlayer'){ if(!requireAdmin())return; showAddPlayerForm = true; render(); return; }
       if(act==='confirmAddPlayer'){
+        if(!requireAdmin())return;
         const nm = document.getElementById('newPlayerName')?.value.trim();
         const no = document.getElementById('newPlayerNo')?.value.trim();
         const pos = document.getElementById('newPlayerPos')?.value.trim();
@@ -1347,6 +1482,7 @@ function bindDynamicHandlers(){
         return;
       }
       if(act==='saveEditPlayer'){
+        if(!requireAdmin())return;
         const idx = +el.dataset.idx;
         const p = roster[idx];
         if(!p){ editingPlayerIdx = null; render(); return; }
@@ -1362,6 +1498,7 @@ function bindDynamicHandlers(){
       }
       if(act==='cancelEditPlayer'){ editingPlayerIdx = null; render(); return; }
       if(act==='addSchedule'){
+        if(!requireAdmin())return;
         const type = document.getElementById('schedType').value;
         const opp = document.getElementById('schedOpp').value.trim();
         const date = document.getElementById('schedDate').value;
@@ -1393,13 +1530,17 @@ function bindDynamicHandlers(){
       if(act==='endGame'){ endGame(el.dataset.ns); return; }
       if(act==='oppRun'){ recordOppRun(el.dataset.ns); return; }
       if(act==='saveSettings'){
+        if(!requireAdmin())return;
         const league = document.getElementById('settingLeague')?.value.trim();
         if(league){ leagueName = league; document.querySelector('.team-sub').textContent = `2026 賽季 · ${leagueName}`; }
         toast('已儲存賽季設定');
         return;
       }
       if(act==='addAccount'){ toast('這台裝置僅支援單一本機帳號,多人共用需接上第 6 點的雲端同步'); return; }
-      if(act==='logout'){ toast('已登出(僅本機示意,尚未接帳號系統)'); return; }
+      if(act==='logout'){ doLogout(); return; }
+      if(act==='doLogin'){ doLogin(); return; }
+      if(act==='doSignup'){ doSignup(); return; }
+      if(act==='toggleAuthView'){ authView = authView==='login'?'signup':'login'; authError=''; render(); return; }
       toast('架構示意 — 尚未串接功能');
     });
   });
@@ -1424,8 +1565,8 @@ document.getElementById('bottomNav').addEventListener('click', (e)=>{
   window.scrollTo(0,0);
 });
 
-render();
 initSync();
+initAuth();
 </script>
 </body>
 </html>
