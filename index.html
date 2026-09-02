@@ -361,7 +361,8 @@ let saveTimer = null;
 function snapshotState(){
   return { standings, roster, schedule, guestPlayers, cupInfo, cupParticipants,
     cupBattingOrder, cupFieldAssignment, battingOrder, fieldAssignment,
-    battingStats, pitchingStats, leagueName, gameHistory, totalGames };
+    battingStats, pitchingStats, leagueName, gameHistory, totalGames,
+    preseasonGamesPlayed, preseasonStreak };
 }
 function applyCloudData(d){
   if(!d) return;
@@ -380,6 +381,8 @@ function applyCloudData(d){
   if(d.pitchingStats){ Object.keys(pitchingStats).forEach(k=>delete pitchingStats[k]); Object.assign(pitchingStats, d.pitchingStats); }
   if(d.leagueName) leagueName = d.leagueName;
   if(d.totalGames) totalGames = d.totalGames;
+  if(typeof d.preseasonGamesPlayed === 'number') preseasonGamesPlayed = d.preseasonGamesPlayed;
+  if(d.preseasonStreak) preseasonStreak = d.preseasonStreak;
   if(d.gameHistory){ gameHistory.length=0; gameHistory.push(...d.gameHistory); }
 }
 async function cloudLoad(){
@@ -705,10 +708,11 @@ function leagueResultsChrono(){
 }
 function currentStreak(){
   const res = leagueResultsChrono();
-  if(!res.length) return null;
+  if(!res.length) return preseasonStreak.type ? { type:preseasonStreak.type, count:preseasonStreak.count } : null;
   const last = res[res.length-1].outcome;
   let count = 0;
   for(let i=res.length-1;i>=0;i--){ if(res[i].outcome===last) count++; else break; }
+  if(count === res.length && preseasonStreak.type === last) count += preseasonStreak.count;
   return { type:last, count };
 }
 function headToHeadRecords(){
@@ -1012,6 +1016,8 @@ let editingStandings = false;
 let showAddPlayerForm = false;
 let leagueName = '好樣聯盟';
 let totalGames = 10;
+let preseasonGamesPlayed = 10;   // 開始用「記錄比賽」逐局紀錄之前,已經打完但沒有留下逐局紀錄的場數
+let preseasonStreak = { type: 'W', count: 6 }; // 同上,起始連勝/連敗/連和基準值
 let lineupExpanded = { lg:true, cup:true };
 let gameLogExpanded = false;
 let selectedCupStage = null;
@@ -1126,7 +1132,7 @@ function viewHome(){
     <div class="card">
       <div class="next-title" style="margin-bottom:8px;">球季進度</div>
       ${(()=>{
-        const played = schedule.filter(s=>s.type==='聯賽' && s.result).length;
+        const played = leagueResultsChrono().length + preseasonGamesPlayed;
         const total = totalGames || 0;
         const pct = total ? Math.min(100, Math.round(played/total*100)) : 0;
         return `<div style="display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:15px;font-weight:900;">已打 ${played} <span style="font-size:11px;color:var(--muted);font-weight:400;">/ 預計 ${total} 場</span></span><span style="font-size:12px;color:var(--accent);font-weight:800;">${pct}%</span></div>
@@ -1859,6 +1865,27 @@ function viewSettings(){
   </section>
 
   <section>
+    <div class="section-title">📈 起始基準值</div>
+    <div class="card">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">「近況戰績」「球季進度」只認得透過「記錄比賽」留下逐局紀錄的場次。如果你之前已經打了幾場、只是沒有用逐局紀錄,可以在這裡補一個起始值,之後用記錄比賽功能追加的場次會自動疊加上去;測試或刪掉某場逐局紀錄不會動到這裡的數字。</div>
+      <div class="form-row"><label>已完成場次(不含逐局紀錄)</label><input id="settingPreGames" value="${preseasonGamesPlayed}" inputmode="numeric" ${isAdmin()?'':'disabled style="opacity:.6"'} /></div>
+      <div class="form-row">
+        <label>目前連勝/連敗/連和</label>
+        <div style="display:flex;gap:8px;">
+          <select id="settingPreStreakType" style="flex:1;" ${isAdmin()?'':'disabled'}>
+            <option value="" ${!preseasonStreak.type?'selected':''}>無</option>
+            <option value="W" ${preseasonStreak.type==='W'?'selected':''}>連勝</option>
+            <option value="L" ${preseasonStreak.type==='L'?'selected':''}>連敗</option>
+            <option value="T" ${preseasonStreak.type==='T'?'selected':''}>連和</option>
+          </select>
+          <input id="settingPreStreakCount" value="${preseasonStreak.count||0}" inputmode="numeric" style="flex:1;" ${isAdmin()?'':'disabled style="opacity:.6"'} />
+        </div>
+      </div>
+      ${isAdmin() ? `<button class="btn-primary" data-action="savePreseason">儲存起始基準值</button>` : `<div style="font-size:11px;color:var(--muted);margin-top:6px;">只有管理者能改起始基準值。</div>`}
+    </div>
+  </section>
+
+  <section>
     <div class="section-title">🔐 帳號</div>
     <div class="card">
       ${syncEnabled && currentProfile ? `
@@ -2136,7 +2163,20 @@ function bindDynamicHandlers(){
         if(league){ leagueName = league; document.querySelector('.team-sub').textContent = `2026 賽季 · ${leagueName}`; }
         if(games) totalGames = games;
         render();
+        flushCloudSaveNow();
         toast('已儲存賽季設定');
+        return;
+      }
+      if(act==='savePreseason'){
+        if(!requireAdmin())return;
+        const pg = +document.getElementById('settingPreGames')?.value;
+        preseasonGamesPlayed = isNaN(pg) ? 0 : Math.max(0,pg);
+        const st = document.getElementById('settingPreStreakType')?.value;
+        const sc = +document.getElementById('settingPreStreakCount')?.value;
+        preseasonStreak = st ? { type: st, count: isNaN(sc)?0:Math.max(0,sc) } : { type:null, count:0 };
+        render();
+        flushCloudSaveNow();
+        toast('已儲存起始基準值');
         return;
       }
       if(act==='saveLinkedPlayer'){ saveLinkedPlayer(); return; }
