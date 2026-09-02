@@ -132,9 +132,9 @@
   .stat-box.hero .val{font-size:30px;color:#fff;letter-spacing:.01em;}
 
   /* standings */
-  .team-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);}
+  .team-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);border-left:3px solid transparent;padding-left:8px;margin-left:-8px;}
   .team-row:last-child{border-bottom:none;}
-  .team-row.me{background:var(--accent-soft);margin:0 -16px;padding:11px 16px;border-radius:0;}
+  .team-row.me{background:var(--accent-soft);margin:0 -16px;padding:11px 16px;border-radius:0;border-left:3px solid var(--accent);}
   .badge{
     width:28px;height:28px;border-radius:50%;color:#fff;font-size:12px;font-weight:900;
     display:flex;align-items:center;justify-content:center;flex-shrink:0;
@@ -152,8 +152,8 @@
 
   /* leaderboard */
   .subtabs{display:flex;gap:6px;margin-bottom:14px;background:var(--chip);padding:4px;border-radius:10px;}
-  .subtabs button{flex:1;border:none;background:transparent;padding:9px 0;font-size:12.5px;font-weight:700;font-family:'Noto Sans TC',sans-serif;color:var(--muted);border-radius:7px;cursor:pointer;}
-  .subtabs button.active{background:var(--header1);color:#fff;}
+  .subtabs button{flex:1;border:none;background:transparent;padding:9px 0;font-size:12.5px;font-weight:700;font-family:'Noto Sans TC',sans-serif;color:var(--muted);border-radius:7px;cursor:pointer;transition:background .15s;}
+  .subtabs button.active{background:linear-gradient(135deg,var(--header1),var(--header2));color:#fff;box-shadow:0 3px 8px rgba(18,39,68,.25);}
 
   .rank-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
   .rank-row:last-child{border-bottom:none;}
@@ -180,15 +180,17 @@
   }
   .form-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .btn-primary{
-    display:block;width:100%;text-align:center;background:var(--accent);color:#fff;border:none;
+    display:block;width:100%;text-align:center;background:linear-gradient(135deg,var(--accent),#E06D0E);color:#fff;border:none;
     padding:13px;border-radius:10px;font-size:14.5px;font-weight:800;font-family:'Noto Sans TC',sans-serif;
-    cursor:pointer;margin-top:4px;
+    cursor:pointer;margin-top:4px;box-shadow:0 4px 12px rgba(242,128,30,.3);transition:transform .1s;
   }
+  .btn-primary:active{transform:scale(.98);}
   .btn-outline{
     display:block;width:100%;text-align:center;background:transparent;color:var(--header2);
     border:1.5px solid var(--header2);padding:11px;border-radius:10px;font-size:13.5px;font-weight:700;
-    font-family:'Noto Sans TC',sans-serif;cursor:pointer;margin-top:10px;
+    font-family:'Noto Sans TC',sans-serif;cursor:pointer;margin-top:10px;transition:transform .1s;
   }
+  .btn-outline:active{transform:scale(.98);}
   .btn-ghost-sm{
     background:none;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;
     color:var(--header2);font-weight:700;cursor:pointer;
@@ -244,15 +246,17 @@
   .linescore td.cur-inning{background:rgba(242,128,30,.12);border-radius:4px;}
   .panel-disabled{opacity:.4;pointer-events:none;}
 
-  .field-wrap{position:relative;width:100%;max-width:300px;margin:6px auto 0;aspect-ratio:300/320;border-radius:12px;overflow:hidden;}
+  .field-wrap{position:relative;width:100%;max-width:300px;margin:6px auto 0;aspect-ratio:300/320;border-radius:14px;overflow:hidden;box-shadow:0 4px 16px rgba(18,39,68,.18) inset,0 3px 10px rgba(18,39,68,.1);}
   .field-wrap svg{width:100%;height:100%;display:block;}
   .pos-badge{position:absolute;transform:translate(-50%,-50%);background:#fff;border-radius:9px;padding:5px 9px;text-align:center;box-shadow:0 2px 6px rgba(18,39,68,.18);min-width:60px;}
   .pos-badge .pk{font-size:9.5px;font-weight:800;color:var(--header2);}
   .pos-badge .pn{font-size:11.5px;font-weight:700;color:var(--ink);margin-top:1px;white-space:nowrap;}
   .pos-badge.rover .pk{color:var(--accent);}
 
-  .order-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);}
+  .order-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);border-radius:8px;transition:background .2s;}
   .order-row:last-child{border-bottom:none;}
+  .order-row.at-bat{background:var(--accent-soft);margin:0 -8px;padding:8px;}
+  .order-row.at-bat .ord-no{background:var(--accent);box-shadow:0 0 0 3px rgba(242,128,30,.22);}
   .order-row .ord-no{font-weight:900;font-size:12.5px;color:#fff;background:var(--header2);width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
   .order-row select{flex:1;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:13px;font-family:'Noto Sans TC',sans-serif;background:var(--card);color:var(--ink);}
 
@@ -285,8 +289,8 @@
   nav.bottom button.active::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:22px;height:3px;border-radius:0 0 3px 3px;background:linear-gradient(90deg,var(--header2),var(--accent));}
   nav.bottom .icon{font-size:17px;}
 
-  .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:100px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:30;white-space:nowrap;}
-  .toast.show{opacity:1;}
+  .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(6px);background:linear-gradient(135deg,#1E2A3A,#0F1826);color:#fff;padding:11px 20px;border-radius:100px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .22s ease,transform .22s ease;z-index:30;white-space:nowrap;box-shadow:0 8px 22px rgba(0,0,0,.28);}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
 </head>
 <body>
@@ -961,8 +965,8 @@ function toast(msg){
   window.__toastTimer = setTimeout(()=>t.classList.remove('show'), 1600);
 }
 
-function emptyState(title, sub){
-  return `<div class="empty-state"><b>${title}</b>${sub?sub:''}</div>`;
+function emptyState(title, sub, icon){
+  return `<div class="empty-state"><div style="font-size:26px;margin-bottom:6px;opacity:.32;">${icon||'⚾'}</div><b>${title}</b>${sub?sub:''}</div>`;
 }
 
 function renderStatBand(){
@@ -1064,7 +1068,7 @@ function viewHome(){
   </section>
 
   <section>
-    <div class="section-title">快速功能</div>
+    <div class="section-title">⚡ 快速功能</div>
     <div class="card quick-list">
       <div class="quick-item" data-nav="stats" data-sub="league">
         <div><div class="t">聯賽中心</div><div class="d">戰績、追趕判讀、聯賽排名</div></div><div class="arrow">›</div>
@@ -1100,10 +1104,10 @@ function renderStandingsList(rows, showHead){
   return `
     ${showHead?`<div class="table-head"><div style="width:34px;">排名</div><div style="flex:1;">隊伍</div><div style="width:120px;text-align:right;">勝-負-和 · 勝率</div></div>`:''}
     ${rows.map(r=>`
-      <div class="team-row ${r.me?'me':''}">
+      <div class="team-row ${r.me?'me':''}" style="${r.me?'':`border-left-color:${r.color}40;`}">
         <div class="rk">${r.rank}</div>
         ${teamBadge(r)}
-        <div class="tname">${r.team}${r.me?'<small>我隊</small>':''}</div>
+        <div class="tname">${r.rank===1?'<span style="margin-right:2px;">🏆</span>':''}${r.team}${r.me?'<small>我隊</small>':''}</div>
         <div class="cols"><span><b>${r.w}-${r.l}-${r.t}</b></span><span><b>${r.pct}</b></span></div>
       </div>`).join('')}
   `;
@@ -1160,7 +1164,7 @@ function statsCup(){
   return `
     <div class="section-head"><div class="section-title" style="margin:0;">${cupInfo.name}</div>${isAdmin()?'<a data-action="deleteCup">刪除盃賽</a>':''}</div>
 
-    <div class="section-title">盃賽階段</div>
+    <div class="section-title">🏆 盃賽階段</div>
     <div class="stage-row">
       <div class="stage-pill ${!selectedCupStage?'active':''}" data-action="selectCupStage" data-stage="">全部</div>
       ${cupStages.map(s=>`<div class="stage-pill ${selectedCupStage===s?'active':''}" data-action="selectCupStage" data-stage="${s}">${s}</div>`).join('')}
@@ -1184,7 +1188,7 @@ function statsCup(){
       ${isAdmin()?`<div style="font-size:11px;color:var(--muted);margin-top:8px;">去「賽程」新增,類型選「盃賽」就能指定階段。</div>`:''}
     </div>
 
-    <div class="section-title" style="margin-top:18px;">盃賽專屬名單</div>
+    <div class="section-title" style="margin-top:18px;">🎫 盃賽專屬名單</div>
     <div class="card">
       <div style="font-size:11px;color:var(--muted);line-height:1.6;">隊員與外援只套用於這個盃賽,新增後可依比賽上下排序。</div>
       ${guestPlayers.length ? `
@@ -1208,7 +1212,7 @@ function statsCup(){
         </div>` : `<button class="btn-outline" data-action="showAddGuest">新增外援</button>`) : ''}
     </div>
 
-    <div class="section-title" style="margin-top:18px;">參賽球員</div>
+    <div class="section-title" style="margin-top:18px;">✅ 參賽球員</div>
     <div class="card" style="padding:4px 16px;">
       <div style="font-size:11px;color:var(--muted);line-height:1.6;padding:8px 0 4px;">勾選這場盃賽會上場的隊員與外援,才會出現在下面的打序與守備選單中。</div>
       ${pool.map(name=>`
@@ -1223,7 +1227,7 @@ function statsCup(){
       ${renderBattingOrder(cupBattingOrder, cupParticipants, 'cup')}
     </div>
 
-    <div class="section-head" style="margin-top:18px;"><div class="section-title" style="margin:0;">守備陣型<span style="font-size:11px;color:var(--muted);font-weight:400;">(盃賽)</span></div></div>
+    <div class="section-head" style="margin-top:18px;"><div class="section-title" style="margin:0;">⚾ 守備陣型<span style="font-size:11px;color:var(--muted);font-weight:400;">(盃賽)</span></div></div>
     <div class="card">
       ${renderFieldDiagram(cupBattingOrder, 'cup')}
     </div>
@@ -1252,7 +1256,7 @@ function statsRank(){
   const tabs = [["avg","打擊率"],["hits","安打"],["wins","勝投"],["era","防禦率"]];
   const rows = computeLeaderboard(rankTab);
   return `
-    <div class="section-title">球員排行榜<span style="font-size:11px;color:var(--muted);font-weight:400;">(依實際紀錄自動統計,目前只有南機場自己的數據)</span></div>
+    <div class="section-title">📊 球員排行榜<span style="font-size:11px;color:var(--muted);font-weight:400;">(依實際紀錄自動統計,目前只有南機場自己的數據)</span></div>
     <div class="subtabs">${tabs.map(([k,l])=>`<button data-ranktab="${k}" class="${rankTab===k?'active':''}">${l}</button>`).join('')}</div>
     <div class="card">
       ${rows.length ? rows.map((p,i)=>`
@@ -1287,7 +1291,7 @@ function viewSchedule(){
   return `
   ${isAdmin() ? `
   <section>
-    <div class="section-title">賽程</div>
+    <div class="section-title">📅 賽程</div>
     <div class="card">
       <div class="form-row">
         <label>類型</label>
@@ -1322,7 +1326,7 @@ function viewSchedule(){
       <button class="btn-primary" data-action="addSchedule">新增賽程</button>
     </div>
   </section>
-  ` : `<div class="section-title">賽程</div>`}
+  ` : `<div class="section-title">📅 賽程</div>`}
 
   <section>
     <div class="card">
@@ -1347,7 +1351,7 @@ function viewRoster(){
   const spares = roster.filter(p=>p.name==="備用");
   return `
   <section>
-    <div class="section-head"><div class="section-title" style="margin:0;">南機場球員</div>${(isAdmin() && !showAddPlayerForm)?'<a data-action="addPlayer">新增球員</a>':''}</div>
+    <div class="section-head"><div class="section-title" style="margin:0;">👤 南機場球員</div>${(isAdmin() && !showAddPlayerForm)?'<a data-action="addPlayer">新增球員</a>':''}</div>
     ${showAddPlayerForm ? `
       <div class="card" style="margin-bottom:10px;">
         <div class="form-row"><label>姓名</label><input id="newPlayerName" placeholder="球員姓名" /></div>
@@ -1450,7 +1454,7 @@ function posOptions(selected, exclude){
   return `<option value="">— 守位 —</option>` + regular + ep;
 }
 
-function renderBattingOrder(orderArr, pool, ns){
+function renderBattingOrder(orderArr, pool, ns, curIdx){
   const filled = orderArr.filter(r=>r.player).length;
   const expanded = lineupExpanded[ns];
   return `
@@ -1460,7 +1464,7 @@ function renderBattingOrder(orderArr, pool, ns){
     </div>
     ${expanded ? `
       ${orderArr.map((row,i)=>`
-        <div class="order-row">
+        <div class="order-row ${curIdx!=null && i===curIdx ? 'at-bat':''}">
           <div class="ord-no">${i+1}</div>
           <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="player" style="flex:1.3;">${playerOptions(row.player, pool, usedPlayers(orderArr,i))}</select>
           <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="pos" style="flex:1;">${posOptions(row.pos, usedPositions(orderArr,i))}</select>
@@ -1477,10 +1481,25 @@ function renderFieldDiagram(orderArr, ns){
   return `
     <div class="field-wrap">
       <svg viewBox="0 0 300 320" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0" y="0" width="300" height="320" fill="#5CA860"/>
-        <polygon points="150,300 265,185 150,70 35,185" fill="#C79A6B"/>
+        <defs>
+          <linearGradient id="grassGrad-${ns}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#6BC06E"/>
+            <stop offset="100%" stop-color="#4B9350"/>
+          </linearGradient>
+          <linearGradient id="dirtGrad-${ns}" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#DCB489"/>
+            <stop offset="100%" stop-color="#B4835A"/>
+          </linearGradient>
+          <pattern id="mow-${ns}" width="26" height="320" patternUnits="userSpaceOnUse" patternTransform="rotate(45 150 160)">
+            <rect width="13" height="320" fill="#000" opacity="0.045"/>
+          </pattern>
+        </defs>
+        <rect x="0" y="0" width="300" height="320" fill="url(#grassGrad-${ns})"/>
+        <rect x="0" y="0" width="300" height="320" fill="url(#mow-${ns})"/>
+        <polygon points="150,300 265,185 150,70 35,185" fill="url(#dirtGrad-${ns})"/>
         <polygon points="150,280 225,213 150,145 75,213" fill="none" stroke="#fff" stroke-width="2.5" opacity="0.9"/>
         <circle cx="150" cy="207" r="9" fill="#EFE3D0" stroke="#fff" stroke-width="2"/>
+        <polygon points="150,292 145,300 155,300" fill="#fff" opacity="0.9"/>
       </svg>
       ${fieldPositions.map(p=>`
         <div class="pos-badge ${p.rover?'rover':''}" style="left:${(p.x/300*100).toFixed(1)}%;top:${(p.y/320*100).toFixed(1)}%;">
@@ -1540,11 +1559,11 @@ function viewGameDetail(){
     </div>
   </section>
   <section>
-    <div class="section-title">打擊紀錄</div>
+    <div class="section-title">🏏 打擊紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxBatting(rec.box.bat)}</div>
   </section>
   <section>
-    <div class="section-title">投手紀錄</div>
+    <div class="section-title">⚾ 投手紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxPitching(rec.box.pitch)}</div>
   </section>
   ${isAdmin() ? `
@@ -1635,11 +1654,11 @@ function viewRecord(){
 
   <section>
     <div class="section-title">打序<span style="font-size:11px;color:var(--muted);font-weight:400;">(同時設定守位)</span></div>
-    <div class="card">${renderBattingOrder(orderArrOf(ns), pool, ns)}</div>
+    <div class="card">${renderBattingOrder(orderArrOf(ns), pool, ns, g && g.half==='us' && currentBatter ? orderArrOf(ns).findIndex(r=>r.player===currentBatter) : null)}</div>
   </section>
 
   <section>
-    <div class="section-head"><div class="section-title" style="margin:0;">守備陣型</div><span style="font-size:11px;color:var(--muted);">壘球十人制,含自由手</span></div>
+    <div class="section-head"><div class="section-title" style="margin:0;">⚾ 守備陣型</div><span style="font-size:11px;color:var(--muted);">壘球十人制,含自由手</span></div>
     <div class="card">${renderFieldDiagram(orderArrOf(ns), ns)}</div>
   </section>
 
@@ -1691,7 +1710,7 @@ function viewRecord(){
 function viewSettings(){
   return `
   <section>
-    <div class="section-title">我的球員身分</div>
+    <div class="section-title">🎽 我的球員身分</div>
     <div class="card">
       ${syncEnabled && currentProfile ? `
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6;">連結到球員名單裡的哪一位,首頁「我的成績」就會預設顯示他的數據。</div>
@@ -1705,7 +1724,7 @@ function viewSettings(){
   </section>
 
   <section>
-    <div class="section-title">賽季設定</div>
+    <div class="section-title">⚙️ 賽季設定</div>
     <div class="card">
       <div class="form-row"><label>聯盟名稱</label><input id="settingLeague" value="${leagueName}" ${isAdmin()?'':'disabled style="opacity:.6"'} /></div>
       <div class="form-row"><label>每隊聯賽總場次</label><input id="settingTotalGames" value="${totalGames}" ${isAdmin()?'':'disabled style="opacity:.6"'} /></div>
@@ -1714,7 +1733,7 @@ function viewSettings(){
   </section>
 
   <section>
-    <div class="section-title">帳號</div>
+    <div class="section-title">🔐 帳號</div>
     <div class="card">
       ${syncEnabled && currentProfile ? `
         <div class="setting-row">
@@ -1731,7 +1750,7 @@ function viewSettings(){
 
   ${isAdmin() ? `
   <section>
-    <div class="section-head"><div class="section-title" style="margin:0;">隊員管理</div><a data-action="refreshMembers">重新整理</a></div>
+    <div class="section-head"><div class="section-title" style="margin:0;">👥 隊員管理</div><a data-action="refreshMembers">重新整理</a></div>
     <div class="card" style="padding:4px 16px;">
       ${allProfiles.length ? allProfiles.map(m=>`
         <div class="roster-row">
@@ -1747,7 +1766,7 @@ function viewSettings(){
 
   ${isAdmin() ? `
   <section>
-    <div class="section-title">危險區域</div>
+    <div class="section-title">⚠️ 危險區域</div>
     <div class="card">
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">把「打擊數據校正值」清空歸零(球員編輯表單那個手動調整值),不會動到任何一場比賽紀錄的數字、也不會動賽程/名單/戰績。要清掉某場比賽的數據,去該場比賽紀錄裡刪除。這個動作沒辦法復原。</div>
       <button class="btn-outline" style="color:var(--bad);border-color:var(--bad);" data-action="resetStats">清空校正值</button>
