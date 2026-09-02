@@ -55,7 +55,7 @@
     min-height:100vh;
     background:var(--bg);
     position:relative;
-    padding-bottom:78px;
+    padding-bottom:100px;
   }
 
   header.top{
@@ -203,6 +203,13 @@
   .score-hero .vs{font-size:13px;color:var(--muted);}
   .score-hero .sc{font-size:32px;font-weight:900;margin:6px 0;}
   .score-hero .inn{font-size:12px;color:var(--muted);}
+  .bases-mini{position:relative;width:64px;height:64px;margin:6px auto 4px;}
+  .bases-mini .b-dot{position:absolute;width:20px;height:20px;border:2px solid var(--header2);background:#fff;transform:rotate(45deg);}
+  .bases-mini .b-dot.on{background:var(--accent);border-color:var(--accent);}
+  .bases-mini .b1{right:0;bottom:10px;}
+  .bases-mini .b2{left:22px;top:0;}
+  .bases-mini .b3{left:0;bottom:10px;}
+  .bases-label{font-size:10px;color:var(--muted);text-align:center;margin-bottom:8px;}
   .linescore{width:100%;border-collapse:collapse;font-size:11.5px;}
   .linescore th,.linescore td{padding:5px 7px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap;}
   .linescore th{color:var(--muted);font-weight:600;}
@@ -293,6 +300,7 @@
      id uuid primary key references auth.users(id) on delete cascade,
      name text,
      role text default 'member',
+     player_name text,
      created_at timestamptz default now()
    );
    alter table profiles enable row level security;
@@ -314,7 +322,7 @@ let saveTimer = null;
 function snapshotState(){
   return { standings, roster, schedule, guestPlayers, cupInfo, cupParticipants,
     cupBattingOrder, cupFieldAssignment, battingOrder, fieldAssignment,
-    battingStats, pitchingStats, leagueName, gameHistory };
+    battingStats, pitchingStats, leagueName, gameHistory, totalGames };
 }
 function applyCloudData(d){
   if(!d) return;
@@ -331,6 +339,7 @@ function applyCloudData(d){
   if(d.battingStats) Object.assign(battingStats, d.battingStats);
   if(d.pitchingStats) Object.assign(pitchingStats, d.pitchingStats);
   if(d.leagueName) leagueName = d.leagueName;
+  if(d.totalGames) totalGames = d.totalGames;
   if(d.gameHistory){ gameHistory.length=0; gameHistory.push(...d.gameHistory); }
 }
 async function cloudLoad(){
@@ -379,14 +388,31 @@ function isLoggedIn(){ return !syncEnabled || !!session; } // 沒接雲端同步
 async function loadProfile(){
   if(!session) { currentProfile = null; return; }
   const { data } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
-  if(data){ currentProfile = data; return; }
-  // 這個帳號登入成功了但還沒有 profile(通常是註冊時信箱還沒驗證,建立身分那步被擋下來)
-  // 現在已經是登入狀態,補建一筆:第一個補建的人自動當管理者
-  const { count } = await sb.from('profiles').select('*', {count:'exact', head:true});
-  const role = (count===0) ? 'admin' : 'member';
-  const name = session.user.user_metadata?.name || session.user.email.split('@')[0];
-  const { data: created } = await sb.from('profiles').upsert({ id: session.user.id, name, role }).select().maybeSingle();
-  currentProfile = created || { id: session.user.id, name, role };
+  if(data){ currentProfile = data; }
+  else {
+    // 這個帳號登入成功了但還沒有 profile(通常是註冊時信箱還沒驗證,建立身分那步被擋下來)
+    // 現在已經是登入狀態,補建一筆:第一個補建的人自動當管理者
+    const { count } = await sb.from('profiles').select('*', {count:'exact', head:true});
+    const role = (count===0) ? 'admin' : 'member';
+    const name = session.user.user_metadata?.name || session.user.email.split('@')[0];
+    const { data: created } = await sb.from('profiles').upsert({ id: session.user.id, name, role }).select().maybeSingle();
+    currentProfile = created || { id: session.user.id, name, role };
+  }
+  if(currentProfile && currentProfile.player_name) selectedStatPlayer = currentProfile.player_name;
+}
+
+async function saveLinkedPlayer(){
+  const sel = document.getElementById('linkedPlayerSel');
+  const val = sel?.value || '';
+  if(!currentProfile) return;
+  currentProfile.player_name = val;
+  if(val) selectedStatPlayer = val;
+  if(syncEnabled && session){
+    try{ await sb.from('profiles').update({ player_name: val }).eq('id', session.user.id); }
+    catch(e){ console.warn('更新球員身分失敗', e); }
+  }
+  toast(val ? `已連結到 ${val}` : '已取消連結');
+  render();
 }
 
 async function initAuth(){
@@ -579,6 +605,7 @@ function newLiveState(opp, battingFirst, scheduleIdx){
     outs: 0,
     batterPtr: 0,
     us: 0, them: 0,
+    bases: {1:false,2:false,3:false}, // 目前打擊方的壘上跑者
     innings: [],             // [{us:null|num, them:null|num}, ...] 每局比分
     scheduleIdx,
     log: []
@@ -628,12 +655,42 @@ function switchHalfIfNeeded(g){
   ensureInningRow(g, idx);
   if(g.innings[idx][g.half] == null) g.innings[idx][g.half] = 0;
   g.outs = 0;
+  g.bases = {1:false,2:false,3:false};
   if(g.half === g.battingFirst){
     g.half = (g.battingFirst==='us') ? 'them' : 'us';
   } else {
     g.half = g.battingFirst;
     g.inning++;
   }
+}
+
+// 簡化版跑壘規則:安打/全壘打時,場上跑者跟打者一起前進同樣的壘數
+function advanceRunners(g, n){
+  let runs = 0;
+  const old = {...g.bases};
+  g.bases = {1:false,2:false,3:false};
+  [1,2,3].forEach(b=>{
+    if(old[b]){
+      const dest = b + n;
+      if(dest >= 4) runs++; else g.bases[dest] = true;
+    }
+  });
+  if(n < 4) g.bases[n] = true; else runs++; // n=4 是全壘打,打者也回本壘
+  return runs;
+}
+// 保送/四壞:只有被逼進壘的跑者才會前進
+function forceWalk(g){
+  let runs = 0;
+  if(g.bases[1]){
+    if(g.bases[2]){
+      if(g.bases[3]) runs++;
+      g.bases[3] = true;
+    } else {
+      g.bases[2] = true;
+    }
+  }
+  g.bases[1] = true;
+  return runs;
 }
 
 function recordBat(ns, type){
@@ -645,14 +702,25 @@ function recordBat(ns, type){
   const batter = order[g.batterPtr % order.length].player;
   const bs = statOf(battingStats, batter);
   const prevStat = {...bs};
-  const prevGame = {...g, innings: g.innings.map(r=>({...r}))};
-  if(type==='1B'||type==='2B'||type==='3B'){ bs.AB++; bs.H++; }
-  else if(type==='HR'){
-    bs.AB++; bs.H++; bs.HR++; bs.R++; g.us++;
-    ensureInningRow(g, g.inning-1);
-    g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + 1;
+  const prevGame = {...g, innings: g.innings.map(r=>({...r})), bases: {...g.bases}};
+  if(type==='1B'||type==='2B'||type==='3B'){
+    const n = type==='1B'?1:type==='2B'?2:3;
+    bs.AB++; bs.H++;
+    const runs = advanceRunners(g, n);
+    if(runs){ g.us += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + runs; }
   }
-  else if(type==='BB'){ bs.BB++; }
+  else if(type==='HR'){
+    bs.AB++; bs.H++; bs.HR++; bs.R++;
+    const runs = advanceRunners(g, 4);
+    g.us += runs;
+    ensureInningRow(g, g.inning-1);
+    g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + runs;
+  }
+  else if(type==='BB'){
+    bs.BB++;
+    const runs = forceWalk(g);
+    if(runs){ g.us += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + runs; }
+  }
   else if(type==='OUT'){ bs.AB++; g.outs++; }
   g.batterPtr++;
   switchHalfIfNeeded(g);
@@ -667,11 +735,19 @@ function recordPitch(ns, type){
   if(!pitcher){ toast('請先在打序中指定投手,或用下拉選單選投手'); return; }
   const ps = statOf(pitchingStats, pitcher);
   const prevStat = {...ps};
-  const prevGame = {...g, innings: g.innings.map(r=>({...r}))};
+  const prevGame = {...g, innings: g.innings.map(r=>({...r})), bases: {...g.bases}};
   if(type==='OUT'){ ps.outs++; g.outs++; }
   else if(type==='K'){ ps.K++; ps.outs++; g.outs++; }
-  else if(type==='H') ps.H++;
-  else if(type==='BB') ps.BB++;
+  else if(type==='H'){
+    ps.H++;
+    const runs = advanceRunners(g, 1);
+    if(runs){ g.them += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + runs; }
+  }
+  else if(type==='BB'){
+    ps.BB++;
+    const runs = forceWalk(g);
+    if(runs){ g.them += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + runs; }
+  }
   else if(type==='R'){
     ps.R++; g.them++;
     ensureInningRow(g, g.inning-1);
@@ -686,7 +762,7 @@ function recordPitch(ns, type){
 function recordOppRun(ns){
   const g = liveGame[ns];
   if(!g){ toast('請先開始比賽'); return; }
-  const prevGame = {...g, innings: g.innings.map(r=>({...r}))};
+  const prevGame = {...g, innings: g.innings.map(r=>({...r})), bases: {...g.bases}};
   g.them++;
   ensureInningRow(g, g.inning-1);
   g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + 1;
@@ -702,6 +778,18 @@ function undoLast(ns){
   Object.assign(g, last.prevGame);
   render();
 }
+function updateStandingsFromResult(us, them){
+  const me = standings.find(r=>r.me);
+  if(!me) return;
+  if(us > them) me.w++;
+  else if(us < them) me.l++;
+  else me.t++;
+  const g = me.w + me.l + me.t;
+  me.pct = g ? (me.w/g).toFixed(3).replace(/^0/,'') : '.000';
+  standings.sort((a,b)=> (b.w-b.l) - (a.w-a.l));
+  standings.forEach((r,i)=> r.rank = i+1);
+}
+
 function endGame(ns){
   const g = liveGame[ns];
   if(!g) return;
@@ -712,13 +800,15 @@ function endGame(ns){
   const finalUs = g.us, finalThem = g.them;
   const box = computeGameBoxScore(g);
   const sched = (g.scheduleIdx!=null) ? schedule[g.scheduleIdx] : null;
+  const gameType = sched ? sched.type : (ns==='cup'?'盃賽':'聯賽');
   const record = {
     id: g.id, ns, opp, us: finalUs, them: finalThem, innings: g.innings,
-    date: sched?sched.date:'', time: sched?sched.time:'', type: sched?sched.type:(ns==='cup'?'盃賽':'聯賽'),
+    date: sched?sched.date:'', time: sched?sched.time:'', type: gameType,
     box
   };
   gameHistory.push(record);
   if(sched){ sched.result = `${finalUs}:${finalThem}`; sched.historyId = g.id; }
+  if(gameType === '聯賽') updateStandingsFromResult(finalUs, finalThem);
   toast(`比賽結束:南機場 ${finalUs} : ${finalThem} ${opp}`);
   liveGame[ns] = null;
   render();
@@ -740,6 +830,8 @@ let rankTab = 'avg';
 let editingStandings = false;
 let showAddPlayerForm = false;
 let leagueName = '好樣聯盟';
+let totalGames = 10;
+let lineupExpanded = { lg:true, cup:true };
 
 function toast(msg){
   const t = document.getElementById('toast');
@@ -1118,15 +1210,23 @@ function posOptions(selected, exclude){
 }
 
 function renderBattingOrder(orderArr, pool, ns){
+  const filled = orderArr.filter(r=>r.player).length;
+  const expanded = lineupExpanded[ns];
   return `
-    ${orderArr.map((row,i)=>`
-      <div class="order-row">
-        <div class="ord-no">${i+1}</div>
-        <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="player" style="flex:1.3;">${playerOptions(row.player, pool, usedPlayers(orderArr,i))}</select>
-        <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="pos" style="flex:1;">${posOptions(row.pos, usedPositions(orderArr,i))}</select>
-      </div>`).join('')}
-    <button class="btn-outline" data-action="addBatter" data-ns="${ns}">+ 新增打者</button>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">每一列同時選「打者」和「守位」,同一個人、同一個守位不會出現在別列的選單裡了,不用擔心選重複。守位可以留空(替補/指定打擊不用守備)。</div>
+    <div class="section-head" style="margin-bottom:${expanded?'10px':'0'};">
+      <span style="font-size:12px;color:var(--muted);">已排 ${filled} / ${orderArr.length} 棒</span>
+      <a data-action="toggleLineup" data-ns="${ns}">${expanded?'收起 ▲':'展開 ▼'}</a>
+    </div>
+    ${expanded ? `
+      ${orderArr.map((row,i)=>`
+        <div class="order-row">
+          <div class="ord-no">${i+1}</div>
+          <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="player" style="flex:1.3;">${playerOptions(row.player, pool, usedPlayers(orderArr,i))}</select>
+          <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="pos" style="flex:1;">${posOptions(row.pos, usedPositions(orderArr,i))}</select>
+        </div>`).join('')}
+      <button class="btn-outline" data-action="addBatter" data-ns="${ns}">+ 新增打者</button>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">每一列同時選「打者」和「守位」,同一個人、同一個守位不會出現在別列的選單裡了,不用擔心選重複。守位可以留空(替補/指定打擊不用守備)。</div>
+    ` : ''}
   `;
 }
 
@@ -1209,6 +1309,18 @@ function viewGameDetail(){
   `;
 }
 
+function renderBasesIndicator(g){
+  if(!g) return '';
+  return `
+    <div class="bases-mini">
+      <div class="b-dot b2 ${g.bases[2]?'on':''}"></div>
+      <div class="b-dot b3 ${g.bases[3]?'on':''}"></div>
+      <div class="b-dot b1 ${g.bases[1]?'on':''}"></div>
+    </div>
+    <div class="bases-label">目前壘上:${[g.bases[1]&&'一壘',g.bases[2]&&'二壘',g.bases[3]&&'三壘'].filter(Boolean).join('、')||'無人上壘'}</div>
+  `;
+}
+
 function renderLineScore(g){
   const cols = Math.max(g.inning, g.innings.length);
   const cell = (i, side) => {
@@ -1283,6 +1395,7 @@ function viewRecord(){
   <section>
     <div class="section-title">目前打者${currentBatter?`:<span style="color:var(--header2);">${currentBatter}</span>`:''}${g&&g.half!=='us'?'<span style="font-size:11px;color:var(--muted);font-weight:400;">(對方打擊中,先記錄下面投手)</span>':''}</div>
     <div class="card ${g&&g.half!=='us'?'panel-disabled':''}">
+      ${g?renderBasesIndicator(g):''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <button class="btn-primary" style="margin:0;" data-rec="1B" data-ns="${ns}">一壘安打</button>
         <button class="btn-primary" style="margin:0;" data-rec="2B" data-ns="${ns}">二壘安打</button>
@@ -1298,6 +1411,7 @@ function viewRecord(){
   <section>
     <div class="section-title">投手紀錄${g&&g.half==='us'?'<span style="font-size:11px;color:var(--muted);font-weight:400;">(我隊打擊中,先記錄上面打者)</span>':''}</div>
     <div class="card ${g&&g.half==='us'?'panel-disabled':''}">
+      ${g?renderBasesIndicator(g):''}
       <select id="pitcherSel" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:14px;font-family:'Noto Sans TC',sans-serif;margin-bottom:10px;">
         <option value="">— 選擇投手 —</option>
         ${pool.map(n=>`<option value="${n}" ${pitcher===n?'selected':''}>${n}</option>`).join('')}
@@ -1315,7 +1429,7 @@ function viewRecord(){
     </div>
   </section>
 
-  <div style="display:flex;gap:8px;">
+  <div style="display:flex;gap:8px;margin-bottom:20px;">
     <button class="btn-outline" style="flex:1;" data-action="undo" data-ns="${ns}">Undo</button>
     <button class="btn-outline" style="flex:1;" data-action="oppRun" data-ns="${ns}">對手 +1</button>
     <button class="btn-primary" style="flex:1;margin-top:0;" data-action="endGame" data-ns="${ns}">結束</button>
@@ -1326,11 +1440,24 @@ function viewRecord(){
 function viewSettings(){
   return `
   <section>
+    <div class="section-title">我的球員身分</div>
+    <div class="card">
+      ${syncEnabled && currentProfile ? `
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6;">連結到球員名單裡的哪一位,首頁「我的成績」就會預設顯示他的數據。</div>
+        <select id="linkedPlayerSel" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:14px;font-family:'Noto Sans TC',sans-serif;margin-bottom:10px;">
+          <option value="">— 尚未連結 —</option>
+          ${activeRoster().map(p=>`<option value="${p.name}" ${currentProfile.player_name===p.name?'selected':''}>#${p.no} ${p.name}</option>`).join('')}
+        </select>
+        <button class="btn-primary" data-action="saveLinkedPlayer">儲存</button>
+      ` : `<div style="font-size:11px;color:var(--muted);line-height:1.6;">單機模式沒有帳號,無法連結球員身分。</div>`}
+    </div>
+  </section>
+
+  <section>
     <div class="section-title">賽季設定</div>
     <div class="card">
-      <div class="form-row"><label>我的球員身分</label><input value="${currentProfile?currentProfile.name:'夏銘鴻'}" disabled style="opacity:.6" /></div>
       <div class="form-row"><label>聯盟名稱</label><input id="settingLeague" value="${leagueName}" ${isAdmin()?'':'disabled style="opacity:.6"'} /></div>
-      <div class="form-row"><label>每隊聯賽總場次</label><input value="10" ${isAdmin()?'':'disabled style="opacity:.6"'} /></div>
+      <div class="form-row"><label>每隊聯賽總場次</label><input id="settingTotalGames" value="${totalGames}" ${isAdmin()?'':'disabled style="opacity:.6"'} /></div>
       ${isAdmin() ? `<button class="btn-primary" data-action="saveSettings">儲存賽季設定</button>` : `<div style="font-size:11px;color:var(--muted);margin-top:6px;">只有管理者能改賽季設定。</div>`}
     </div>
   </section>
@@ -1444,6 +1571,7 @@ function bindDynamicHandlers(){
         if(el.dataset.ns==='cup') cupBattingOrder.push({player:'',pos:''}); else battingOrder.push({player:'',pos:''});
         render(); return;
       }
+      if(act==='toggleLineup'){ lineupExpanded[el.dataset.ns] = !lineupExpanded[el.dataset.ns]; render(); return; }
       if(act==='showCreateCup'){ if(!requireAdmin())return; showCupForm = true; render(); return; }
       if(act==='confirmCreateCup'){
         if(!requireAdmin())return;
@@ -1535,10 +1663,14 @@ function bindDynamicHandlers(){
       if(act==='saveSettings'){
         if(!requireAdmin())return;
         const league = document.getElementById('settingLeague')?.value.trim();
+        const games = +document.getElementById('settingTotalGames')?.value;
         if(league){ leagueName = league; document.querySelector('.team-sub').textContent = `2026 賽季 · ${leagueName}`; }
+        if(games) totalGames = games;
+        render();
         toast('已儲存賽季設定');
         return;
       }
+      if(act==='saveLinkedPlayer'){ saveLinkedPlayer(); return; }
       if(act==='addAccount'){ toast('這台裝置僅支援單一本機帳號,多人共用需接上第 6 點的雲端同步'); return; }
       if(act==='logout'){ doLogout(); return; }
       if(act==='doLogin'){ doLogin(); return; }
