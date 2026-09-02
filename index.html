@@ -351,8 +351,11 @@ async function cloudLoad(){
     if(!error && data) applyCloudData(data.data);
   }catch(e){ console.warn('雲端讀取失敗', e); }
 }
+let lastSentUpdatedAt = null;
 async function doCloudSave(){
-  try{ await sb.from('team_state').upsert({ id: SYNC_ROW_ID, data: snapshotState(), updated_at: new Date().toISOString() }); }
+  const updatedAt = new Date().toISOString();
+  lastSentUpdatedAt = updatedAt;
+  try{ await sb.from('team_state').upsert({ id: SYNC_ROW_ID, data: snapshotState(), updated_at: updatedAt }); }
   catch(e){ console.warn('雲端儲存失敗', e); }
 }
 function scheduleCloudSave(){
@@ -376,7 +379,13 @@ function initSync(){
   window.addEventListener('pagehide', flushCloudSaveNow);
   sb.channel('team-state-changes')
     .on('postgres_changes', {event:'*', schema:'public', table:'team_state', filter:`id=eq.${SYNC_ROW_ID}`}, payload=>{
-      if(payload.new && payload.new.data){ applyCloudData(payload.new.data); render(); }
+      if(!payload.new || !payload.new.data) return;
+      if(payload.new.updated_at && payload.new.updated_at === lastSentUpdatedAt) return; // 自己剛存回去的回音,不用重畫
+      applyCloudData(payload.new.data);
+      const active = document.activeElement;
+      const isEditing = active && ['SELECT','INPUT','TEXTAREA'].includes(active.tagName) && app.contains(active);
+      if(isEditing) return; // 使用者正在點選單/打字,先套用資料就好,晚點再重畫,不要把他手上的東西關掉
+      render();
     })
     .subscribe();
 }
