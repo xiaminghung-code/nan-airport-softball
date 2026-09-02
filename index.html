@@ -28,8 +28,20 @@
     --warn:#D98B00;
     --chip:#F2F4F8;
   }
-  *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0;padding:0;
+    touch-action:manipulation;
+    overscroll-behavior:none;
+    -webkit-user-select:none;
+    user-select:none;
+    -webkit-touch-callout:none;
+  }
+  input, textarea, select{
+    -webkit-user-select:text;
+    user-select:text;
+    touch-action:manipulation;
+  }
   body{
     background:var(--bg);
     color:var(--ink);
