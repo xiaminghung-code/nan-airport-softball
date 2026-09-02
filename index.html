@@ -200,11 +200,13 @@
   .sched-tag.league{background:#E4ECFB;color:#2451B8;}
   .sched-tag.cup{background:var(--accent-soft);color:var(--accent);}
   .sched-item .matchup{flex:1;font-size:13.5px;font-weight:700;min-width:0;}
+  .opp-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;flex-shrink:0;}
   .sched-item .meta{font-size:11px;color:var(--muted);margin-top:2px;}
   .sched-item .rm{color:var(--bad);font-size:12px;font-weight:700;background:none;border:none;cursor:pointer;flex-shrink:0;}
 
   /* roster */
-  .roster-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
+  .roster-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);position:relative;overflow:hidden;}
+  .roster-row::after{content:attr(data-jn);position:absolute;right:-4px;top:50%;transform:translateY(-50%);font-size:54px;font-weight:900;color:var(--header1);opacity:.05;line-height:1;pointer-events:none;font-family:'Noto Sans TC',sans-serif;}
   .roster-row:last-child{border-bottom:none;}
   .roster-row.inactive{opacity:.5;}
   .roster-row .jn{font-family:'Noto Sans TC',sans-serif;font-weight:900;font-size:13px;color:var(--header2);background:var(--chip);border-radius:7px;min-width:30px;text-align:center;padding:5px 0;flex-shrink:0;}
@@ -219,8 +221,12 @@
   /* game record */
   .score-hero{text-align:center;}
   .score-hero .vs{font-size:13px;color:var(--muted);}
-  .score-hero .sc{font-size:32px;font-weight:900;margin:6px 0;}
+  .score-hero .sc{font-size:32px;font-weight:900;margin:6px 0;display:inline-block;}
   .score-hero .inn{font-size:12px;color:var(--muted);}
+  @keyframes popScore{0%{transform:scale(1);}35%{transform:scale(1.2);color:var(--accent);}100%{transform:scale(1);}}
+  .score-hero .sc.pop{animation:popScore .4s ease;}
+  @keyframes popOuts{0%{transform:scale(1);}35%{transform:scale(1.15);color:var(--bad);}100%{transform:scale(1);}}
+  .inn .outs-n.pop{display:inline-block;animation:popOuts .4s ease;}
   .bases-mini{position:relative;width:64px;height:64px;margin:6px auto 4px;}
   .bases-mini .b-dot{position:absolute;width:20px;height:20px;border:2px solid var(--header2);background:#fff;transform:rotate(45deg);}
   .bases-mini .b-dot.on{background:var(--accent);border-color:var(--accent);}
@@ -533,21 +539,28 @@ function requireAdmin(){
 
 function viewAuth(){
   return `
-  <div style="padding:32px 20px;">
-    <div class="card">
-      <div class="section-title" style="margin-bottom:4px;">${authView==='login'?'登入球隊帳號':'註冊新帳號'}</div>
-      <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;">南機場壘球隊 · 好樣聯盟</div>
-      ${authError?`<div style="font-size:12px;color:var(--bad);background:#FCEAEA;border-radius:8px;padding:8px 10px;margin-bottom:12px;line-height:1.6;">${authError}</div>`:''}
-      ${authView==='signup'?`<div class="form-row"><label>姓名</label><input id="authName" placeholder="你的姓名(隊友會看到)" /></div>`:''}
-      <div class="form-row"><label>Email</label><input id="authEmail" type="email" autocapitalize="off" placeholder="you@example.com" /></div>
-      <div class="form-row"><label>密碼</label><input id="authPassword" type="password" placeholder="${authView==='signup'?'至少 6 碼':'密碼'}" /></div>
-      <button class="btn-primary" data-action="${authView==='login'?'doLogin':'doSignup'}" ${authBusy?'disabled style="opacity:.6"':''}>${authBusy?'處理中...':(authView==='login'?'登入':'註冊')}</button>
-      <div style="text-align:center;margin-top:12px;font-size:12.5px;color:var(--muted);">
-        ${authView==='login'?'還沒有帳號?':'已經有帳號了?'}
-        <a data-action="toggleAuthView" style="color:var(--header2);font-weight:700;">${authView==='login'?'註冊一個':'登入'}</a>
-      </div>
+  <div style="min-height:100dvh;background:linear-gradient(180deg, var(--header1) 0%, var(--header2) 46%, var(--bg) 46%);padding-top:env(safe-area-inset-top);">
+    <div style="text-align:center;color:#fff;padding:56px 20px 30px;">
+      <div style="font-size:36px;line-height:1;">⚾</div>
+      <div style="font-weight:900;font-size:22px;margin-top:10px;letter-spacing:.01em;">南機場壘球隊</div>
+      <div style="font-size:12.5px;color:#B9CBE0;margin-top:4px;">2026 賽季 · 好樣聯盟</div>
     </div>
-    <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.6;">第一個註冊的人會自動變成管理者,可以編輯戰績、名單、賽程;之後註冊的人預設是一般隊員,只能看跟記錄比賽。</div>
+    <div style="padding:0 20px 32px;">
+      <div class="card" style="box-shadow:0 12px 32px rgba(18,39,68,.2);border-radius:18px;">
+        <div class="section-title" style="margin-bottom:4px;">${authView==='login'?'登入球隊帳號':'註冊新帳號'}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;">${authView==='login'?'輸入帳號密碼繼續':'加入球隊,開始記錄比賽'}</div>
+        ${authError?`<div style="font-size:12px;color:var(--bad);background:#FCEAEA;border-radius:8px;padding:8px 10px;margin-bottom:12px;line-height:1.6;">${authError}</div>`:''}
+        ${authView==='signup'?`<div class="form-row"><label>姓名</label><input id="authName" placeholder="你的姓名(隊友會看到)" /></div>`:''}
+        <div class="form-row"><label>Email</label><input id="authEmail" type="email" autocapitalize="off" placeholder="you@example.com" /></div>
+        <div class="form-row"><label>密碼</label><input id="authPassword" type="password" placeholder="${authView==='signup'?'至少 6 碼':'密碼'}" /></div>
+        <button class="btn-primary" data-action="${authView==='login'?'doLogin':'doSignup'}" ${authBusy?'disabled style="opacity:.6"':''}>${authBusy?'處理中...':(authView==='login'?'登入':'註冊')}</button>
+        <div style="text-align:center;margin-top:12px;font-size:12.5px;color:var(--muted);">
+          ${authView==='login'?'還沒有帳號?':'已經有帳號了?'}
+          <a data-action="toggleAuthView" style="color:var(--header2);font-weight:700;">${authView==='login'?'註冊一個':'登入'}</a>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.6;">第一個註冊的人會自動變成管理者,可以編輯戰績、名單、賽程;之後註冊的人預設是一般隊員,只能看跟記錄比賽。</div>
+    </div>
   </div>`;
 }
 
@@ -703,7 +716,7 @@ function renderPlayerGameLog(name){
     rows.push(`<div class="sched-item" data-gamelog-id="${g.id}" style="cursor:pointer;">
       <span class="sched-tag ${g.type==='聯賽'?'league':'cup'}">${g.type}</span>
       <div style="flex:1;min-width:0;">
-        <div class="matchup">南機場 vs ${g.opp}</div>
+        <div class="matchup"><span class="opp-dot" style="background:${opponentColor(g.opp)};"></span>南機場 vs ${g.opp}</div>
         <div class="meta">${g.date||''}${g.time?' '+g.time:''} · ${parts.join(' · ')}</div>
       </div>
       <span style="color:var(--muted);font-size:12px;">›</span>
@@ -963,6 +976,21 @@ function renderStatBand(){
   `;
 }
 
+let liveScoreSnapshot = { lg: null, cup: null };
+function flashLiveScore(){
+  if(currentView!=='record') return;
+  const g = liveGame[recordNs];
+  if(!g) return;
+  const key = `${g.us}:${g.them}:${g.outs}`;
+  const prev = liveScoreSnapshot[recordNs];
+  if(prev && prev !== key){
+    const scEl = document.querySelector('.score-hero .sc');
+    if(scEl){ scEl.classList.remove('pop'); void scEl.offsetWidth; scEl.classList.add('pop'); }
+    const outsEl = document.querySelector('.score-hero .outs-n');
+    if(outsEl){ outsEl.classList.remove('pop'); void outsEl.offsetWidth; outsEl.classList.add('pop'); }
+  }
+  liveScoreSnapshot[recordNs] = key;
+}
 function render(){
   if(!isLoggedIn()){
     app.innerHTML = viewAuth();
@@ -981,9 +1009,17 @@ function render(){
   if(currentView==='settings') app.innerHTML = viewSettings();
   renderStatBand();
   bindDynamicHandlers();
+  flashLiveScore();
   scheduleCloudSave();
 }
 
+function daysUntil(dateStr){
+  if(!dateStr) return null;
+  const target = new Date(dateStr+'T00:00:00');
+  if(isNaN(target)) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  return Math.round((target-today)/86400000);
+}
 function viewHome(){
   const nextGame = schedule.find(s=>!s.result) || null;
   const season = computeSeasonStats();
@@ -991,9 +1027,12 @@ function viewHome(){
   return `
   <section>
     <div class="card">
-      <div class="next-title">下一場比賽</div>
+      <div class="next-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>下一場比賽</span>
+        ${(()=>{ if(!nextGame) return ''; const d = daysUntil(nextGame.date); if(d==null) return ''; const label = d===0?'今天':d===1?'明天':d>1?`還有 ${d} 天`:'已過期'; return `<span style="background:${d<=0?'var(--chip)':'var(--accent-soft)'};color:${d<=0?'var(--muted)':'var(--accent)'};font-size:11px;font-weight:800;padding:3px 10px;border-radius:100px;">${label}</span>`; })()}
+      </div>
       ${nextGame ? `
-        <div class="next-main">南機場 vs ${nextGame.opp}</div>
+        <div class="next-main"><span class="opp-dot" style="background:${opponentColor(nextGame.opp)};"></span>南機場 vs ${nextGame.opp}</div>
         <div class="next-sub">${nextGame.type} · ${nextGame.date}${nextGame.time?' '+nextGame.time:''}${nextGame.place?' · '+nextGame.place:''}</div>
       ` : `
         <div class="next-main">尚未建立賽程</div>
@@ -1136,7 +1175,7 @@ function statsCup(){
           return `<div class="sched-item">
             <span class="sched-tag cup">${g.stage||'未分階段'}</span>
             <div style="flex:1;min-width:0;${g.historyId?'cursor:pointer;':''}" ${g.historyId?`data-sched-view="${i}"`:''}>
-              <div class="matchup">南機場 vs ${g.opp}${g.result?` <span style="color:var(--header2);">${g.result}</span>`:''}${g.historyId?` <span style="color:var(--muted);font-size:11px;">›</span>`:''}</div>
+              <div class="matchup"><span class="opp-dot" style="background:${opponentColor(g.opp)};"></span>南機場 vs ${g.opp}${g.result?` <span style="color:var(--header2);">${g.result}</span>`:''}${g.historyId?` <span style="color:var(--muted);font-size:11px;">›</span>`:''}</div>
               <div class="meta">${g.date||'日期未定'}${g.time?' '+g.time:''}${g.place?' · '+g.place:''}</div>
             </div>
           </div>`;
@@ -1235,6 +1274,13 @@ function knownPlaces(){
   return [...new Set(schedule.map(s=>s.place).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-Hant'));
 }
 
+const oppColorPalette = ['#F2801E','#2F6FED','#16A34A','#DB2777','#7C3AED','#0EA5E9','#D97706','#DC2626','#059669','#4F46E5','#EA580C','#0891B2'];
+function opponentColor(name){
+  if(!name) return '#8592A8';
+  let hash = 0;
+  for(let i=0;i<name.length;i++){ hash = (hash*31 + name.charCodeAt(i)) >>> 0; }
+  return oppColorPalette[hash % oppColorPalette.length];
+}
 function viewSchedule(){
   const opponents = knownOpponents();
   const places = knownPlaces();
@@ -1284,7 +1330,7 @@ function viewSchedule(){
         <div class="sched-item">
           <span class="sched-tag ${g.type==='聯賽'?'league':'cup'}">${g.type}${g.stage?' · '+g.stage:''}</span>
           <div style="flex:1;min-width:0;${g.historyId?'cursor:pointer;':''}" ${g.historyId?`data-sched-view="${i}"`:''}>
-            <div class="matchup">南機場 vs ${g.opp}${g.result?` <span style="color:var(--header2);">${g.result}</span>`:''}${g.historyId?` <span style="color:var(--muted);font-size:11px;">›</span>`:''}</div>
+            <div class="matchup"><span class="opp-dot" style="background:${opponentColor(g.opp)};"></span>南機場 vs ${g.opp}${g.result?` <span style="color:var(--header2);">${g.result}</span>`:''}${g.historyId?` <span style="color:var(--muted);font-size:11px;">›</span>`:''}</div>
             <div class="meta">${g.date||'日期未定'}${g.time?' '+g.time:''}${g.place?' · '+g.place:''}</div>
           </div>
           ${isAdmin()?`<button class="rm" data-sched-remove="${i}">刪除</button>`:''}
@@ -1316,7 +1362,7 @@ function viewRoster(){
       ${main.map(p=>{
         const idx = roster.indexOf(p);
         return `
-        <div class="roster-row ${p.status?'inactive':''}" style="cursor:pointer;" data-edit-player="${idx}">
+        <div class="roster-row ${p.status?'inactive':''}" style="cursor:pointer;" data-edit-player="${idx}" data-jn="${p.no}">
           <div class="jn">${p.no}</div>
           <div class="rinfo">
             <div class="rname">${p.name}${p.jersey?` <span class="rjersey">${p.jersey}</span>`:''}</div>
@@ -1559,7 +1605,7 @@ function viewRecord(){
       ${g ? `
         <div class="vs">南機場 vs ${g.opp}</div>
         <div class="sc">${g.us} : ${g.them}</div>
-        <div class="inn">第 ${g.inning} 局 ${g.half==='us'?'上':'下'} · ${g.half==='us'?'我隊進攻':'我隊防守'} · ${g.outs} 出局</div>
+        <div class="inn">第 ${g.inning} 局 ${g.half==='us'?'上':'下'} · ${g.half==='us'?'我隊進攻':'我隊防守'} · <span class="outs-n">${g.outs}</span> 出局</div>
         ${currentBatter ? `<div class="inn" style="margin-top:2px;">${g.half==='us'?'打擊中':'目前投手 '+(pitcher||'未指定')}${g.half==='us'?':<b style="color:var(--header2);">'+currentBatter+'</b>':''}</div>`:''}
         <div style="margin-top:12px;overflow-x:auto;">${renderLineScore(g)}</div>
       ` : `
