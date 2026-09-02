@@ -195,6 +195,7 @@
     font-family:'Noto Sans TC',sans-serif;cursor:pointer;margin-top:10px;transition:transform .1s;
   }
   .btn-outline:active{transform:scale(.98);}
+  .btn-pressed{transform:scale(.88) !important;filter:brightness(.9);transition:transform .07s ease, filter .07s ease;}
   .btn-ghost-sm{
     background:none;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;
     color:var(--header2);font-weight:700;cursor:pointer;
@@ -234,7 +235,8 @@
   @keyframes popOuts{0%{transform:scale(1);}35%{transform:scale(1.15);color:var(--bad);}100%{transform:scale(1);}}
   .inn .outs-n.pop{display:inline-block;animation:popOuts .4s ease;}
   .bases-mini{position:relative;width:64px;height:64px;margin:6px auto 4px;}
-  .bases-mini .b-dot{position:absolute;width:20px;height:20px;border:2px solid var(--header2);background:#fff;transform:rotate(45deg);}
+  .bases-mini .b-dot{position:absolute;width:20px;height:20px;border:2px solid var(--header2);background:#fff;transform:rotate(45deg);cursor:pointer;transition:transform .1s;}
+  .bases-mini .b-dot:active{transform:rotate(45deg) scale(.85);}
   .bases-mini .b-dot.on{background:var(--accent);border-color:var(--accent);}
   .bases-mini .b1{right:0;bottom:10px;}
   .bases-mini .b2{left:22px;top:0;}
@@ -257,12 +259,22 @@
   .pos-badge .pn{font-size:11.5px;font-weight:700;color:var(--ink);margin-top:1px;white-space:nowrap;}
   .pos-badge.rover .pk{color:var(--accent);}
 
-  .order-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);border-radius:8px;transition:background .2s;}
-  .order-row:last-child{border-bottom:none;}
-  .order-row.at-bat{background:var(--accent-soft);margin:0 -8px;padding:8px;}
-  .order-row.at-bat .ord-no{background:var(--accent);box-shadow:0 0 0 3px rgba(242,128,30,.22);}
-  .order-row .ord-no{font-weight:900;font-size:12.5px;color:#fff;background:var(--header2);width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-  .order-row select{flex:1;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:13px;font-family:'Noto Sans TC',sans-serif;background:var(--card);color:var(--ink);}
+  .order-tile{background:var(--chip);border-radius:12px;padding:10px;margin-bottom:8px;transition:background .2s;}
+  .order-tile.at-bat{background:var(--accent-soft);box-shadow:0 0 0 2px var(--accent) inset;}
+  .order-tile.at-bat .ord-no{background:var(--accent);box-shadow:0 0 0 3px rgba(242,128,30,.22);}
+  .tile-head{display:flex;align-items:center;gap:8px;}
+  .ord-no{font-weight:900;font-size:12.5px;color:#fff;background:var(--header2);width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .tile-head select{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:13px;font-family:'Noto Sans TC',sans-serif;background:var(--card);color:var(--ink);}
+  .move-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0;}
+  .move-btn{width:26px;height:19px;border:1px solid var(--line);background:var(--card);border-radius:5px;color:var(--header2);font-size:10px;line-height:1;cursor:pointer;padding:0;}
+  .move-btn:disabled{opacity:.3;}
+  .move-btn:active:not(:disabled){transform:scale(.9);background:var(--accent-soft);}
+  .pos-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
+  .pos-chip{border:1px solid var(--line);background:var(--card);color:var(--muted);font-size:11px;font-weight:700;padding:5px 9px;border-radius:7px;cursor:pointer;font-family:'Noto Sans TC',sans-serif;}
+  .pos-chip.active{background:var(--header2);border-color:var(--header2);color:#fff;}
+  .pos-chip.ep.active{background:var(--accent);border-color:var(--accent);}
+  .pos-chip:disabled{opacity:.3;cursor:not-allowed;}
+  .pos-chip:active:not(:disabled){transform:scale(.94);}
 
   .guest-row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);}
   .guest-row:last-child{border-bottom:none;}
@@ -725,18 +737,33 @@ function headToHeadRecords(){
   return Object.values(map).sort((a,b)=> (b.w+b.l+b.t)-(a.w+a.l+a.t));
 }
 function gameMVP(rec){
-  let best = null, bestScore = -Infinity;
+  let best = null, bestScore = -Infinity, bestType = null, bestStat = null;
   Object.keys(rec.box.bat||{}).forEach(name=>{
     const s = rec.box.bat[name];
     const score = (s.H||0) + (s.HR||0)*2 + (s.R||0)*0.5 + (s.BB||0)*0.3;
-    if(score>bestScore){ bestScore = score; best = name; }
+    if(score>bestScore){ bestScore = score; best = name; bestType='bat'; bestStat = s; }
   });
   Object.keys(rec.box.pitch||{}).forEach(name=>{
     const s = rec.box.pitch[name];
     const score = Math.floor((s.outs||0)/3)*1.2 + (s.K||0)*0.8 - (s.ER||0)*0.8 + (s.W||0)*2;
-    if(score>bestScore){ bestScore = score; best = name; }
+    if(score>bestScore){ bestScore = score; best = name; bestType='pitch'; bestStat = s; }
   });
-  return bestScore>0 ? best : null;
+  if(bestScore<=0 || !best) return null;
+  let line = '';
+  if(bestType==='bat'){
+    const parts = [`${bestStat.AB}打數${bestStat.H}安打`];
+    if(bestStat.HR) parts.push(`${bestStat.HR}支全壘打`);
+    if(bestStat.R) parts.push(`貢獻${bestStat.R}分`);
+    if(bestStat.BB) parts.push(`${bestStat.BB}次保送`);
+    line = parts.join('、');
+  } else {
+    const parts = [`主投${Math.floor(bestStat.outs/3)}.${bestStat.outs%3}局`];
+    if(bestStat.K) parts.push(`${bestStat.K}次三振`);
+    parts.push(`失${bestStat.ER||0}分自責`);
+    if(bestStat.W) parts.push('拿下勝投');
+    line = parts.join('、');
+  }
+  return { name: best, line };
 }
 function playerAppearanceCounts(){
   const counts = {};
@@ -985,10 +1012,11 @@ function endGame(ns){
   const box = computeGameBoxScore(g);
   const sched = (g.scheduleIdx!=null) ? schedule[g.scheduleIdx] : null;
   const gameType = sched ? sched.type : (ns==='cup'?'盃賽':'聯賽');
+  const lineup = orderArrOf(ns).filter(r=>r.player).map(r=>r.player);
   const record = {
     id: g.id, ns, opp, us: finalUs, them: finalThem, innings: g.innings,
     date: sched?sched.date:'', time: sched?sched.time:'', type: gameType,
-    box
+    box, lineup
   };
   gameHistory.push(record);
   if(sched){ sched.result = `${finalUs}:${finalThem}`; sched.historyId = g.id; }
@@ -1611,14 +1639,27 @@ function renderBattingOrder(orderArr, pool, ns, curIdx){
       <a data-action="toggleLineup" data-ns="${ns}">${expanded?'收起 ▲':'展開 ▼'}</a>
     </div>
     ${expanded ? `
-      ${orderArr.map((row,i)=>`
-        <div class="order-row ${curIdx!=null && i===curIdx ? 'at-bat':''}">
-          <div class="ord-no">${i+1}</div>
-          <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="player" style="flex:1.3;">${playerOptions(row.player, pool, usedPlayers(orderArr,i))}</select>
-          <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="pos" style="flex:1;">${posOptions(row.pos, usedPositions(orderArr,i))}</select>
-        </div>`).join('')}
+      ${orderArr.map((row,i)=>{
+        const used = usedPositions(orderArr, i);
+        return `
+        <div class="order-tile ${curIdx!=null && i===curIdx ? 'at-bat':''}">
+          <div class="tile-head">
+            <div class="ord-no">${i+1}</div>
+            <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="player">${playerOptions(row.player, pool, usedPlayers(orderArr,i))}</select>
+            <div class="move-btns">
+              <button class="move-btn" data-move="up" data-order-ns="${ns}" data-order-idx="${i}" ${i===0?'disabled':''} aria-label="上移">▲</button>
+              <button class="move-btn" data-move="down" data-order-ns="${ns}" data-order-idx="${i}" ${i===orderArr.length-1?'disabled':''} aria-label="下移">▼</button>
+            </div>
+          </div>
+          <div class="pos-chips">
+            <button class="pos-chip ${!row.pos?'active':''}" data-order-ns="${ns}" data-order-idx="${i}" data-pos-pick="">無</button>
+            ${fieldPositions.map(p=>`<button class="pos-chip ${row.pos===p.key?'active':''}" data-order-ns="${ns}" data-order-idx="${i}" data-pos-pick="${p.key}" ${used.includes(p.key)?'disabled':''}>${p.rover?'ROV':p.key}</button>`).join('')}
+            <button class="pos-chip ep ${row.pos==='EP'?'active':''}" data-order-ns="${ns}" data-order-idx="${i}" data-pos-pick="EP">EP</button>
+          </div>
+        </div>`;
+      }).join('')}
       <button class="btn-outline" data-action="addBatter" data-ns="${ns}">+ 新增打者</button>
-      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">每一列同時選「打者」和「守位」,同一個人、同一個守位不會出現在別列的選單裡了,不用擔心選重複。「指定球員(EP)」可以選很多個人一起選,不受這個限制。守位可以留空(替補/指定打擊不用守備)。</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">用 ▲▼ 調整棒次順序,守位直接點方塊選;同一個守位不會出現在別列(EP 例外,可以選很多人)。</div>
     ` : ''}
   `;
 }
@@ -1673,9 +1714,18 @@ function renderLineScoreStatic(rec){
     </table>
   `;
 }
-function renderBoxBatting(bat){
-  const names = Object.keys(bat);
+function renderBoxBatting(bat, lineup){
+  let names = Object.keys(bat);
   if(!names.length) return emptyState('這場沒有打擊紀錄');
+  if(lineup && lineup.length){
+    names = names.slice().sort((a,b)=>{
+      const ia = lineup.indexOf(a), ib = lineup.indexOf(b);
+      if(ia===-1 && ib===-1) return 0;
+      if(ia===-1) return 1;
+      if(ib===-1) return -1;
+      return ia-ib;
+    });
+  }
   return `
     <table class="linescore">
       <tr><th style="text-align:left;">打者</th><th>打數</th><th>安打</th><th>全壘打</th><th>保送</th><th>單場打擊率</th></tr>
@@ -1704,13 +1754,16 @@ function viewGameDetail(){
       <div class="vs">南機場 vs ${rec.opp}</div>
       <div class="sc">${rec.us} : ${rec.them}</div>
       <div class="inn">${rec.type} · ${rec.date||''}${rec.time?' '+rec.time:''}</div>
-      ${mvp?`<div style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,#FFD65C,#F2A93B);color:#7A4B00;font-size:11.5px;font-weight:800;padding:4px 12px;border-radius:100px;">⭐ 單場MVP · ${mvp}</div>`:''}
+      ${mvp?`<div style="margin-top:8px;">
+        <div style="display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,#FFD65C,#F2A93B);color:#7A4B00;font-size:11.5px;font-weight:800;padding:4px 12px;border-radius:100px;">⭐ 單場MVP · ${mvp.name}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:6px;">${mvp.line}</div>
+      </div>`:''}
       <div style="margin-top:12px;overflow-x:auto;">${renderLineScoreStatic(rec)}</div>
     </div>
   </section>
   <section>
     <div class="section-title">🏏 打擊紀錄</div>
-    <div class="card" style="overflow-x:auto;">${renderBoxBatting(rec.box.bat)}</div>
+    <div class="card" style="overflow-x:auto;">${renderBoxBatting(rec.box.bat, rec.lineup)}</div>
   </section>
   <section>
     <div class="section-title">⚾ 投手紀錄</div>
@@ -1730,15 +1783,15 @@ function viewGameDetail(){
   `;
 }
 
-function renderBasesIndicator(g){
+function renderBasesIndicator(g, ns){
   if(!g) return '';
   return `
     <div class="bases-mini">
-      <div class="b-dot b2 ${g.bases[2]?'on':''}"></div>
-      <div class="b-dot b3 ${g.bases[3]?'on':''}"></div>
-      <div class="b-dot b1 ${g.bases[1]?'on':''}"></div>
+      <div class="b-dot b2 ${g.bases[2]?'on':''}" data-toggle-base="2" data-ns="${ns}"></div>
+      <div class="b-dot b3 ${g.bases[3]?'on':''}" data-toggle-base="3" data-ns="${ns}"></div>
+      <div class="b-dot b1 ${g.bases[1]?'on':''}" data-toggle-base="1" data-ns="${ns}"></div>
     </div>
-    <div class="bases-label">目前壘上:${[g.bases[1]&&'一壘',g.bases[2]&&'二壘',g.bases[3]&&'三壘'].filter(Boolean).join('、')||'無人上壘'}</div>
+    <div class="bases-label">目前壘上:${[g.bases[1]&&'一壘',g.bases[2]&&'二壘',g.bases[3]&&'三壘'].filter(Boolean).join('、')||'無人上壘'} <span style="color:var(--muted);">· 點壘包可手動修正</span></div>
   `;
 }
 
@@ -1818,7 +1871,7 @@ function viewRecord(){
   <section>
     <div class="section-title">目前打者${currentBatter?`:<span style="color:var(--header2);">${currentBatter}</span>`:''}${g&&g.half!=='us'?'<span style="font-size:11px;color:var(--muted);font-weight:400;">(對方打擊中,先記錄下面投手)</span>':''}</div>
     <div class="card ${g&&g.half!=='us'?'panel-disabled':''}">
-      ${g?renderBasesIndicator(g):''}
+      ${g?renderBasesIndicator(g, ns):''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <button class="btn-primary" style="margin:0;" data-rec="1B" data-ns="${ns}">一壘安打</button>
         <button class="btn-primary" style="margin:0;" data-rec="2B" data-ns="${ns}">二壘安打</button>
@@ -1834,7 +1887,7 @@ function viewRecord(){
   <section>
     <div class="section-title">投手紀錄${g&&g.half==='us'?'<span style="font-size:11px;color:var(--muted);font-weight:400;">(我隊打擊中,先記錄上面打者)</span>':''}</div>
     <div class="card ${g&&g.half==='us'?'panel-disabled':''}">
-      ${g?renderBasesIndicator(g):''}
+      ${g?renderBasesIndicator(g, ns):''}
       <select id="pitcherSel" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:14px;font-family:'Noto Sans TC',sans-serif;margin-bottom:10px;">
         <option value="">— 選擇投手 —</option>
         ${pool.map(n=>`<option value="${n}" ${pitcher===n?'selected':''}>${n}</option>`).join('')}
@@ -1990,6 +2043,28 @@ function bindDynamicHandlers(){
       render();
     });
   });
+  app.querySelectorAll('[data-move]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const arr = el.dataset.orderNs==='cup' ? cupBattingOrder : battingOrder;
+      const idx = +el.dataset.orderIdx;
+      const swapWith = el.dataset.move==='up' ? idx-1 : idx+1;
+      if(swapWith<0 || swapWith>=arr.length) return;
+      [arr[idx], arr[swapWith]] = [arr[swapWith], arr[idx]];
+      if(navigator.vibrate) navigator.vibrate(10);
+      render();
+    });
+  });
+  app.querySelectorAll('[data-pos-pick]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const arr = el.dataset.orderNs==='cup' ? cupBattingOrder : battingOrder;
+      const idx = +el.dataset.orderIdx;
+      const val = el.dataset.posPick;
+      const row = arr[idx];
+      row.pos = (row.pos === val) ? '' : val;
+      if(navigator.vibrate) navigator.vibrate(10);
+      render();
+    });
+  });
   const pitcherSel = document.getElementById('pitcherSel');
   if(pitcherSel) pitcherSel.addEventListener('change', ()=>{ scoringPitcher[recordNs] = pitcherSel.value; render(); });
   app.querySelectorAll('[data-cup-pick]').forEach(el=>{
@@ -2045,14 +2120,28 @@ function bindDynamicHandlers(){
       viewingGameId = el.dataset.gamelogId; currentView = 'gameDetail'; setActiveNav(); render(); window.scrollTo(0,0);
     });
   });
+  function pressFeedback(el){
+    el.classList.add('btn-pressed');
+    if(navigator.vibrate) navigator.vibrate(12);
+  }
   app.querySelectorAll('[data-rec]').forEach(el=>{
-    el.addEventListener('click', ()=>{ recordBat(el.dataset.ns, el.dataset.rec); });
+    el.addEventListener('click', ()=>{ pressFeedback(el); setTimeout(()=> recordBat(el.dataset.ns, el.dataset.rec), 70); });
   });
   app.querySelectorAll('[data-pitch]').forEach(el=>{
-    el.addEventListener('click', ()=>{ recordPitch(el.dataset.ns, el.dataset.pitch); });
+    el.addEventListener('click', ()=>{ pressFeedback(el); setTimeout(()=> recordPitch(el.dataset.ns, el.dataset.pitch), 70); });
   });
   app.querySelectorAll('[data-batfirst]').forEach(el=>{
     el.addEventListener('click', ()=>{ pendingBatFirst[el.dataset.ns] = el.dataset.batfirst; render(); });
+  });
+  app.querySelectorAll('[data-toggle-base]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const g = liveGame[el.dataset.ns];
+      if(!g) return;
+      const b = el.dataset.toggleBase;
+      g.bases[b] = !g.bases[b];
+      if(navigator.vibrate) navigator.vibrate(12);
+      render();
+    });
   });
   const startGameSelEl = document.getElementById('startGameSel');
   if(startGameSelEl) startGameSelEl.addEventListener('change', ()=>{ pendingGameChoice[startGameSelEl.dataset.ns].sel = startGameSelEl.value; });
