@@ -85,6 +85,10 @@
   .stat-band .col.rank .val{background:linear-gradient(135deg,var(--accent),#F2A93B);-webkit-background-clip:text;background-clip:text;color:transparent;}
   .winrate-bar{height:4px;border-radius:3px;background:var(--line);margin-top:7px;overflow:hidden;}
   .winrate-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--header2),var(--accent));border-radius:3px;}
+  .form-dot{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:900;color:#fff;flex-shrink:0;}
+  .form-dot.w{background:#16A34A;}
+  .form-dot.l{background:#DC2626;}
+  .form-dot.t{background:#8592A8;}
 
   main{padding:26px 16px 8px;}
   section{margin-bottom:20px;}
@@ -371,8 +375,9 @@ function applyCloudData(d){
   if(d.cupFieldAssignment) Object.assign(cupFieldAssignment, d.cupFieldAssignment);
   if(d.battingOrder){ battingOrder.length=0; battingOrder.push(...d.battingOrder); }
   if(d.fieldAssignment) Object.assign(fieldAssignment, d.fieldAssignment);
-  if(d.battingStats) Object.assign(battingStats, d.battingStats);
-  if(d.pitchingStats) Object.assign(pitchingStats, d.pitchingStats);
+  if(d.gameHistory){ gameHistory.length=0; gameHistory.push(...d.gameHistory); }
+  if(d.battingStats){ Object.keys(battingStats).forEach(k=>delete battingStats[k]); Object.assign(battingStats, d.battingStats); }
+  if(d.pitchingStats){ Object.keys(pitchingStats).forEach(k=>delete pitchingStats[k]); Object.assign(pitchingStats, d.pitchingStats); }
   if(d.leagueName) leagueName = d.leagueName;
   if(d.totalGames) totalGames = d.totalGames;
   if(d.gameHistory){ gameHistory.length=0; gameHistory.push(...d.gameHistory); }
@@ -406,7 +411,7 @@ function initSync(){
   syncEnabled = true;
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState==='hidden') flushCloudSaveNow();
-    else if(document.visibilityState==='visible' && session) cloudLoad().then(render);
+    else if(document.visibilityState==='visible' && session) cloudLoad().then(()=>render({skipSave:true}));
   });
   window.addEventListener('pagehide', flushCloudSaveNow);
   sb.channel('team-state-changes')
@@ -417,7 +422,7 @@ function initSync(){
       const active = document.activeElement;
       const isEditing = active && ['SELECT','INPUT','TEXTAREA'].includes(active.tagName) && app.contains(active);
       if(isEditing) return; // 使用者正在點選單/打字,先套用資料就好,晚點再重畫,不要把他手上的東西關掉
-      render();
+      render({skipSave:true});
     })
     .subscribe();
 }
@@ -430,7 +435,7 @@ let authView = 'login';      // 'login' | 'signup'
 let authError = '';
 let authBusy = false;
 
-function isAdmin(){ return !!(currentProfile && currentProfile.role === 'admin'); }
+function isAdmin(){ return !syncEnabled || !!(currentProfile && currentProfile.role === 'admin'); } // 單機模式(沒接雲端同步)沒有多人權限概念,視同管理者
 function isLoggedIn(){ return !syncEnabled || !!session; } // 沒接雲端同步就不需要登入,單機模式照舊
 
 async function loadProfile(){
@@ -692,6 +697,51 @@ function eraOf(store, name){
   const innings = s.outs/3;
   return (s.ER/innings*7).toFixed(2); // 七局制簡易換算,可自行調整
 }
+function leagueResultsChrono(){
+  return gameHistory.filter(r=>r.type==='聯賽')
+    .slice()
+    .sort((a,b)=> (a.date||'').localeCompare(b.date||'') || (a.time||'').localeCompare(b.time||''))
+    .map(r=>({...r, outcome: r.us>r.them?'W':r.us<r.them?'L':'T'}));
+}
+function currentStreak(){
+  const res = leagueResultsChrono();
+  if(!res.length) return null;
+  const last = res[res.length-1].outcome;
+  let count = 0;
+  for(let i=res.length-1;i>=0;i--){ if(res[i].outcome===last) count++; else break; }
+  return { type:last, count };
+}
+function headToHeadRecords(){
+  const map = {};
+  gameHistory.filter(r=>r.type==='聯賽').forEach(r=>{
+    if(!map[r.opp]) map[r.opp] = { opp:r.opp, w:0, l:0, t:0 };
+    const m = map[r.opp];
+    if(r.us>r.them) m.w++; else if(r.us<r.them) m.l++; else m.t++;
+  });
+  return Object.values(map).sort((a,b)=> (b.w+b.l+b.t)-(a.w+a.l+a.t));
+}
+function gameMVP(rec){
+  let best = null, bestScore = -Infinity;
+  Object.keys(rec.box.bat||{}).forEach(name=>{
+    const s = rec.box.bat[name];
+    const score = (s.H||0) + (s.HR||0)*2 + (s.R||0)*0.5 + (s.BB||0)*0.3;
+    if(score>bestScore){ bestScore = score; best = name; }
+  });
+  Object.keys(rec.box.pitch||{}).forEach(name=>{
+    const s = rec.box.pitch[name];
+    const score = Math.floor((s.outs||0)/3)*1.2 + (s.K||0)*0.8 - (s.ER||0)*0.8 + (s.W||0)*2;
+    if(score>bestScore){ bestScore = score; best = name; }
+  });
+  return bestScore>0 ? best : null;
+}
+function playerAppearanceCounts(){
+  const counts = {};
+  gameHistory.forEach(rec=>{
+    const names = new Set([...Object.keys(rec.box.bat||{}), ...Object.keys(rec.box.pitch||{})]);
+    names.forEach(n=>{ counts[n] = (counts[n]||0) + 1; });
+  });
+  return counts;
+}
 function playerGameLog(name){
   return gameHistory
     .filter(rec => (rec.box.bat && rec.box.bat[name]) || (rec.box.pitch && rec.box.pitch[name]))
@@ -749,6 +799,7 @@ function newLiveState(opp, battingFirst, scheduleIdx){
 let liveGame = { lg:null, cup:null };  // 進行中比賽狀態,依 ns 分開
 let scoringPitcher = { lg:'', cup:'' }; // 記錄用的投手,可跟打序裡的 P 不同(換投用)
 let pendingBatFirst = { lg:'us', cup:'us' };
+let pendingGameChoice = { lg: {sel:'', opp:''}, cup: {sel:'', opp:''} };
 let gameHistory = []; // 每一場結束後的完整紀錄(逐局比分+打擊/投手box score)
 
 function computeGameBoxScore(g){
@@ -920,6 +971,13 @@ function endGame(ns){
   if(g.innings[idx][g.half] == null) g.innings[idx][g.half] = 0;
   const opp = g.opp;
   const finalUs = g.us, finalThem = g.them;
+  if(finalUs > finalThem){
+    const alreadyHasWin = g.log.some(l=>l.store==='pitch' && l.type==='W');
+    if(!alreadyHasWin){
+      const pitcher = activePitcher(ns);
+      if(pitcher) g.log.push({store:'pitch', name:pitcher, type:'W'});
+    }
+  }
   const box = computeGameBoxScore(g);
   const sched = (g.scheduleIdx!=null) ? schedule[g.scheduleIdx] : null;
   const gameType = sched ? sched.type : (ns==='cup'?'盃賽':'聯賽');
@@ -934,6 +992,7 @@ function endGame(ns){
   toast(`比賽結束:南機場 ${finalUs} : ${finalThem} ${opp}`);
   liveGame[ns] = null;
   render();
+  flushCloudSaveNow();
 }
 
 
@@ -995,7 +1054,8 @@ function flashLiveScore(){
   }
   liveScoreSnapshot[recordNs] = key;
 }
-function render(){
+function render(opts){
+  const skipSave = !!(opts && opts.skipSave);
   if(!isLoggedIn()){
     app.innerHTML = viewAuth();
     document.getElementById('statBand').innerHTML = '';
@@ -1014,7 +1074,7 @@ function render(){
   renderStatBand();
   bindDynamicHandlers();
   flashLiveScore();
-  scheduleCloudSave();
+  if(!skipSave) scheduleCloudSave();
 }
 
 function daysUntil(dateStr){
@@ -1028,6 +1088,9 @@ function viewHome(){
   const nextGame = schedule.find(s=>!s.result) || null;
   const season = computeSeasonStats();
   const myBat = statOf(season.bat, selectedStatPlayer);
+  const myPitchRaw = season.pitch[selectedStatPlayer];
+  const hasPitching = myPitchRaw && (myPitchRaw.outs||myPitchRaw.K||myPitchRaw.H||myPitchRaw.BB||myPitchRaw.ER||myPitchRaw.W);
+  const myPitch = hasPitching ? myPitchRaw : null;
   return `
   <section>
     <div class="card">
@@ -1047,6 +1110,33 @@ function viewHome(){
 
   <section>
     <div class="card">
+      <div class="section-head" style="margin-bottom:${leagueResultsChrono().length?'10px':'0'};">
+        <div class="section-title" style="margin:0;">📈 近況戰績</div>
+        ${(()=>{ const st = currentStreak(); if(!st) return ''; const label = st.type==='W'?`連勝 ${st.count}`:st.type==='L'?`連敗 ${st.count}`:`連和 ${st.count}`; const color = st.type==='W'?'#16A34A':st.type==='L'?'#DC2626':'#8592A8'; return `<span style="font-size:11px;font-weight:800;color:${color};">${label}</span>`; })()}
+      </div>
+      ${(()=>{
+        const recent = leagueResultsChrono().slice(-5);
+        if(!recent.length) return emptyState('尚無已完成聯賽','','📈');
+        return `<div style="display:flex;gap:7px;">${recent.map(r=>`<div class="form-dot ${r.outcome==='W'?'w':r.outcome==='L'?'l':'t'}" title="vs ${r.opp} ${r.us}:${r.them}">${r.outcome}</div>`).join('')}</div>`;
+      })()}
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <div class="next-title" style="margin-bottom:8px;">球季進度</div>
+      ${(()=>{
+        const played = schedule.filter(s=>s.type==='聯賽' && s.result).length;
+        const total = totalGames || 0;
+        const pct = total ? Math.min(100, Math.round(played/total*100)) : 0;
+        return `<div style="display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:15px;font-weight:900;">已打 ${played} <span style="font-size:11px;color:var(--muted);font-weight:400;">/ 預計 ${total} 場</span></span><span style="font-size:12px;color:var(--accent);font-weight:800;">${pct}%</span></div>
+        <div class="winrate-bar" style="height:6px;margin-top:8px;"><i style="width:${pct}%;"></i></div>`;
+      })()}
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
       <div class="my-stat-head">
         <div class="who">我的成績</div>
         <select id="statPlayerSel">${activeRoster().map(p=>`<option value="${p.name}" ${p.name===selectedStatPlayer?'selected':''}>#${p.no} ${p.name}</option>`).join('')}</select>
@@ -1059,6 +1149,19 @@ function viewHome(){
         <div class="stat-box"><div class="lbl">保送</div><div class="val">${myBat.BB}</div></div>
         <div class="stat-box"><div class="lbl">得分</div><div class="val">${myBat.R}</div></div>
       </div>
+      ${myPitch ? `
+      <div class="section-head" style="margin-top:14px;">
+        <span style="font-size:12px;color:var(--muted);">投手成績</span>
+      </div>
+      <div class="stat-grid" style="margin-top:8px;">
+        <div class="stat-box"><div class="lbl">局數</div><div class="val">${ipOf(season.pitch,selectedStatPlayer)}</div></div>
+        <div class="stat-box"><div class="lbl">防禦率</div><div class="val">${eraOf(season.pitch,selectedStatPlayer)}</div></div>
+        <div class="stat-box"><div class="lbl">勝投</div><div class="val">${myPitch.W}</div></div>
+        <div class="stat-box"><div class="lbl">三振</div><div class="val">${myPitch.K}</div></div>
+        <div class="stat-box"><div class="lbl">被安打</div><div class="val">${myPitch.H}</div></div>
+        <div class="stat-box"><div class="lbl">自責分</div><div class="val">${myPitch.ER}</div></div>
+      </div>
+      ` : ''}
       <div class="section-head" style="margin-top:14px;">
         <span style="font-size:12px;color:var(--muted);">單場紀錄(這個人數字是怎麼加出來的)</span>
         <a data-action="toggleGameLog">${gameLogExpanded?'收起 ▲':'展開 ▼'}</a>
@@ -1127,10 +1230,21 @@ function viewStats(){
 }
 
 function statsLeague(){
+  const h2h = headToHeadRecords();
   return `
     <div class="section-head"><div class="section-title" style="margin:0;">聯賽排名 <span style="font-size:11px;color:var(--muted);font-weight:400;">初階組</span></div>
     ${isAdmin()?`<a data-action="${editingStandings?'saveStandings':'editStandings'}">${editingStandings?'儲存修改':'編輯'}</a>`:''}</div>
     <div class="card">${editingStandings ? renderStandingsEdit(standings) : renderStandingsList(standings, true)}</div>
+
+    <div class="section-title" style="margin-top:18px;">🆚 對戰歷史</div>
+    <div class="card">
+      ${h2h.length ? h2h.map(m=>`
+        <div class="team-row" style="border-left-color:${opponentColor(m.opp)}40;">
+          <span class="opp-dot" style="background:${opponentColor(m.opp)};margin-right:0;"></span>
+          <div class="tname">${m.opp}</div>
+          <div class="cols"><span><b>${m.w}勝${m.l}敗${m.t?m.t+'和':''}</b></span></div>
+        </div>`).join('') : emptyState('尚無對戰紀錄','<div style="margin-top:2px;">打完聯賽比賽後會自動統計對每隊的戰績</div>','🆚')}
+    </div>
   `;
 }
 
@@ -1238,6 +1352,12 @@ function statsCup(){
 
 function computeLeaderboard(kind){
   const season = computeSeasonStats();
+  if(kind==='apps'){
+    const counts = playerAppearanceCounts();
+    return Object.keys(counts)
+      .sort((a,b)=> counts[b]-counts[a])
+      .map(n=> ({name:n, team:'南機場', val:String(counts[n]), color:'#2F6FED'}));
+  }
   if(kind==='avg' || kind==='hits'){
     return Object.keys(season.bat)
       .filter(n=>season.bat[n].AB>0)
@@ -1253,7 +1373,7 @@ function computeLeaderboard(kind){
 }
 
 function statsRank(){
-  const tabs = [["avg","打擊率"],["hits","安打"],["wins","勝投"],["era","防禦率"]];
+  const tabs = [["avg","打擊率"],["hits","安打"],["wins","勝投"],["era","防禦率"],["apps","出賽數"]];
   const rows = computeLeaderboard(rankTab);
   return `
     <div class="section-title">📊 球員排行榜<span style="font-size:11px;color:var(--muted);font-weight:400;">(依實際紀錄自動統計,目前只有南機場自己的數據)</span></div>
@@ -1530,8 +1650,8 @@ function renderBoxBatting(bat){
   if(!names.length) return emptyState('這場沒有打擊紀錄');
   return `
     <table class="linescore">
-      <tr><th style="text-align:left;">打者</th><th>打數</th><th>安打</th><th>全壘打</th><th>保送</th><th>得分</th></tr>
-      ${names.map(n=>{const s=bat[n]; return `<tr><td style="text-align:left;">${n}</td><td>${s.AB}</td><td>${s.H}</td><td>${s.HR}</td><td>${s.BB}</td><td>${s.R}</td></tr>`;}).join('')}
+      <tr><th style="text-align:left;">打者</th><th>打數</th><th>安打</th><th>全壘打</th><th>保送</th><th>單場打擊率</th></tr>
+      ${names.map(n=>{const s=bat[n]; const avg = s.AB ? (s.H/s.AB).toFixed(3).replace(/^0/,'') : '.000'; return `<tr><td style="text-align:left;">${n}</td><td>${s.AB}</td><td>${s.H}</td><td>${s.HR}</td><td>${s.BB}</td><td>${avg}</td></tr>`;}).join('')}
     </table>
   `;
 }
@@ -1548,6 +1668,7 @@ function renderBoxPitching(pitch){
 function viewGameDetail(){
   const rec = gameHistory.find(r=>r.id===viewingGameId);
   if(!rec) return `<section><div class="card">${emptyState('找不到這場比賽的紀錄')}</div></section>`;
+  const mvp = gameMVP(rec);
   return `
   <section>
     <a data-nav="schedule" style="font-size:12px;color:var(--header2);font-weight:700;">‹ 返回賽程</a>
@@ -1555,6 +1676,7 @@ function viewGameDetail(){
       <div class="vs">南機場 vs ${rec.opp}</div>
       <div class="sc">${rec.us} : ${rec.them}</div>
       <div class="inn">${rec.type} · ${rec.date||''}${rec.time?' '+rec.time:''}</div>
+      ${mvp?`<div style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,#FFD65C,#F2A93B);color:#7A4B00;font-size:11.5px;font-weight:800;padding:4px 12px;border-radius:100px;">⭐ 單場MVP · ${mvp}</div>`:''}
       <div style="margin-top:12px;overflow-x:auto;">${renderLineScoreStatic(rec)}</div>
     </div>
   </section>
@@ -1565,6 +1687,9 @@ function viewGameDetail(){
   <section>
     <div class="section-title">⚾ 投手紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxPitching(rec.box.pitch)}</div>
+  </section>
+  <section>
+    <div class="card"><div style="font-size:11px;color:var(--muted);line-height:1.6;">🤖 MVP 是依這場的安打、全壘打、保送、三振、局數等數字自動算出來的參考值,不是正式獎項。</div></div>
   </section>
   ${isAdmin() ? `
   <section>
@@ -1631,15 +1756,15 @@ function viewRecord(){
         ${emptyState('目前沒有進行中的比賽')}
         <div class="form-row" style="margin-top:10px;text-align:left;">
           <label>選擇比賽</label>
-          <select id="startGameSel">
-            <option value="">— 自訂輸入對手 —</option>
+          <select id="startGameSel" data-ns="${ns}">
+            <option value="" ${pendingGameChoice[ns].sel===''?'selected':''}>— 自訂輸入對手 —</option>
             ${upcoming.map((s,i)=>{
               const realIdx = schedule.indexOf(s);
-              return `<option value="${realIdx}">${s.date||'日期未定'}${s.time?' '+s.time:''} vs ${s.opp}</option>`;
+              return `<option value="${realIdx}" ${pendingGameChoice[ns].sel===String(realIdx)?'selected':''}>${s.date||'日期未定'}${s.time?' '+s.time:''} vs ${s.opp}</option>`;
             }).join('')}
           </select>
         </div>
-        <div class="form-row" style="text-align:left;"><input id="startOpp" placeholder="對手球隊(若上面沒選比賽才需要填)" /></div>
+        <div class="form-row" style="text-align:left;"><input id="startOpp" data-ns="${ns}" placeholder="對手球隊(若上面沒選比賽才需要填)" value="${pendingGameChoice[ns].opp}" /></div>
         <div class="form-row" style="text-align:left;">
           <label>先攻後攻</label>
           <div style="display:flex;gap:8px;">
@@ -1696,6 +1821,7 @@ function viewRecord(){
         <button class="btn-primary" style="margin:0;grid-column:span 2;" data-pitch="W" data-ns="${ns}">勝投 +1</button>
       </div>
       <div style="font-size:12.5px;color:var(--muted);margin-top:10px;">IP ${ps?ipOf(liveBox.pitch,pitcher):'0.0'} | H ${ps?ps.H:0} | BB ${ps?ps.BB:0} | K ${ps?ps.K:0} | R ${ps?ps.R:0} | ER ${ps?ps.ER:0} | W ${ps?ps.W:0}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6;">「勝投+1」是手動加的,如果整場都沒按,結束比賽時只要南機場贏球,系統會自動把勝投算給當下場上的投手;想指定給特定投手,就在他還在場上時手動按一次。</div>
     </div>
   </section>
 
@@ -1845,7 +1971,19 @@ function bindDynamicHandlers(){
     el.addEventListener('click', ()=>{ if(!requireAdmin())return; guestPlayers.splice(+el.dataset.guestRemove,1); render(); });
   });
   app.querySelectorAll('[data-sched-remove]').forEach(el=>{
-    el.addEventListener('click', ()=>{ if(!requireAdmin())return; schedule.splice(+el.dataset.schedRemove,1); render(); });
+    el.addEventListener('click', ()=>{
+      if(!requireAdmin())return;
+      const idx = +el.dataset.schedRemove;
+      const s = schedule[idx];
+      if(s && s.historyId){
+        if(!confirm('這場比賽已經有紀錄比分和數據,刪除賽程會連同那場的打擊/投手數據一起刪掉,確定嗎?')) return;
+        const hIdx = gameHistory.findIndex(r=>r.id===s.historyId);
+        if(hIdx>=0) gameHistory.splice(hIdx,1);
+      }
+      schedule.splice(idx,1);
+      render();
+      flushCloudSaveNow();
+    });
   });
   app.querySelectorAll('[data-sched-view]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -1867,6 +2005,10 @@ function bindDynamicHandlers(){
   app.querySelectorAll('[data-batfirst]').forEach(el=>{
     el.addEventListener('click', ()=>{ pendingBatFirst[el.dataset.ns] = el.dataset.batfirst; render(); });
   });
+  const startGameSelEl = document.getElementById('startGameSel');
+  if(startGameSelEl) startGameSelEl.addEventListener('change', ()=>{ pendingGameChoice[startGameSelEl.dataset.ns].sel = startGameSelEl.value; });
+  const startOppEl = document.getElementById('startOpp');
+  if(startOppEl) startOppEl.addEventListener('input', ()=>{ pendingGameChoice[startOppEl.dataset.ns].opp = startOppEl.value; });
   app.querySelectorAll('[data-edit-player]').forEach(el=>{
     el.addEventListener('click', ()=>{ if(!requireAdmin())return; editingPlayerIdx = +el.dataset.editPlayer; render(); window.scrollTo(0,0); });
   });
@@ -1914,7 +2056,7 @@ function bindDynamicHandlers(){
         });
         standings.sort((a,b)=> (b.w-b.l) - (a.w-a.l));
         standings.forEach((r,i)=> r.rank = i+1);
-        editingStandings = false; render(); toast('已更新戰績');
+        editingStandings = false; render(); flushCloudSaveNow(); toast('已更新戰績');
         return;
       }
       if(act==='addPlayer'){ if(!requireAdmin())return; showAddPlayerForm = true; render(); return; }
@@ -1946,7 +2088,7 @@ function bindDynamicHandlers(){
         if(oldName !== newName){ delete battingStats[oldName]; delete pitchingStats[oldName]; }
         battingStats[newName] = { AB:num('editAB'), H:num('editH'), HR:num('editHR'), BB:num('editBBb'), R:num('editBatR'), outs:0, K:0, ER:0, W:0 };
         pitchingStats[newName] = { outs:num('editOuts'), K:num('editK'), H:num('editPH'), BB:num('editPBB'), R:num('editPR'), ER:num('editER'), W:num('editW') };
-        editingPlayerIdx = null; render(); toast('已更新球員資料');
+        editingPlayerIdx = null; render(); flushCloudSaveNow(); toast('已更新球員資料');
         return;
       }
       if(act==='cancelEditPlayer'){ editingPlayerIdx = null; render(); return; }
@@ -1964,6 +2106,7 @@ function bindDynamicHandlers(){
         schedule.push({type, opp, date, time, place, stage});
         sortSchedule();
         render();
+        flushCloudSaveNow();
         toast('已新增賽程');
         return;
       }
@@ -1979,6 +2122,7 @@ function bindDynamicHandlers(){
         if(!opp) opp = (oppInput?.value||'').trim();
         if(!opp){ toast('請選一場比賽或輸入對手球隊'); return; }
         liveGame[ns] = newLiveState(opp, pendingBatFirst[ns], scheduleIdx);
+        pendingGameChoice[ns] = {sel:'', opp:''};
         render(); toast('比賽開始,加油!');
         return;
       }
@@ -2002,6 +2146,7 @@ function bindDynamicHandlers(){
         Object.keys(battingStats).forEach(k=>delete battingStats[k]);
         Object.keys(pitchingStats).forEach(k=>delete pitchingStats[k]);
         render();
+        flushCloudSaveNow();
         toast('已清空所有打擊/投手數據');
         return;
       }
@@ -2016,6 +2161,7 @@ function bindDynamicHandlers(){
         if(sched){ delete sched.historyId; delete sched.result; }
         currentView = 'schedule';
         setActiveNav(); render();
+        flushCloudSaveNow();
         toast('已刪除這場紀錄');
         return;
       }
