@@ -369,7 +369,10 @@ function initSync(){
   if(!SYNC_URL || !SYNC_KEY || typeof supabase==='undefined') return;
   sb = supabase.createClient(SYNC_URL, SYNC_KEY);
   syncEnabled = true;
-  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') flushCloudSaveNow(); });
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='hidden') flushCloudSaveNow();
+    else if(document.visibilityState==='visible' && session) cloudLoad().then(render);
+  });
   window.addEventListener('pagehide', flushCloudSaveNow);
   sb.channel('team-state-changes')
     .on('postgres_changes', {event:'*', schema:'public', table:'team_state', filter:`id=eq.${SYNC_ROW_ID}`}, payload=>{
@@ -596,25 +599,47 @@ let guestPlayers = [];
 let showGuestForm = false;
 
 /* ---------- 計分引擎(打擊/投手紀錄) ---------- */
-// battingStats[name] = {AB,H,BB,R,HR}   pitchingStats[name] = {outs,K,BB,H,R,ER,W}
+// battingStats/pitchingStats 是「手動基準值」(球員編輯表單校正用,不含任何一場比賽的紀錄)
+// 球季總數 = 手動基準值 + 所有已結束比賽的單場紀錄加總 + 進行中比賽即時累加
+// 這樣刪除某一場比賽紀錄,那一場貢獻的數據會自動從總數消失,不會殘留
 let battingStats = {};
 let pitchingStats = {};
 function statOf(store, name){
   if(!store[name]) store[name] = {AB:0,H:0,BB:0,R:0,HR:0,outs:0,K:0,ER:0,W:0};
   return store[name];
 }
-function avgOf(name){
-  const s = battingStats[name];
+function mergeStatsInto(target, source){
+  Object.keys(source||{}).forEach(name=>{
+    const s = source[name];
+    const t = statOf(target, name);
+    t.AB+=s.AB||0; t.H+=s.H||0; t.BB+=s.BB||0; t.R+=s.R||0; t.HR+=s.HR||0;
+    t.outs+=s.outs||0; t.K+=s.K||0; t.ER+=s.ER||0; t.W+=s.W||0;
+  });
+}
+function computeSeasonStats(){
+  const bat = {}, pitch = {};
+  mergeStatsInto(bat, battingStats);
+  mergeStatsInto(pitch, pitchingStats);
+  gameHistory.forEach(rec=>{
+    if(rec.box){ mergeStatsInto(bat, rec.box.bat); mergeStatsInto(pitch, rec.box.pitch); }
+  });
+  Object.values(liveGame).forEach(g=>{
+    if(g){ const live = computeGameBoxScore(g); mergeStatsInto(bat, live.bat); mergeStatsInto(pitch, live.pitch); }
+  });
+  return { bat, pitch };
+}
+function avgOf(store, name){
+  const s = store[name];
   if(!s || !s.AB) return '.000';
   return (s.H/s.AB).toFixed(3).replace(/^0/,'');
 }
-function ipOf(name){
-  const s = pitchingStats[name];
+function ipOf(store, name){
+  const s = store[name];
   if(!s) return '0.0';
   return `${Math.floor(s.outs/3)}.${s.outs%3}`;
 }
-function eraOf(name){
-  const s = pitchingStats[name];
+function eraOf(store, name){
+  const s = store[name];
   if(!s || !s.outs) return '0.00';
   const innings = s.outs/3;
   return (s.ER/innings*7).toFixed(2); // 七局制簡易換算,可自行調整
@@ -725,31 +750,26 @@ function recordBat(ns, type){
   const order = orderArrOf(ns).filter(r=>r.player);
   if(!order.length){ toast('請先在打序中選擇球員'); return; }
   const batter = order[g.batterPtr % order.length].player;
-  const bs = statOf(battingStats, batter);
-  const prevStat = {...bs};
   const prevGame = {...g, innings: g.innings.map(r=>({...r})), bases: {...g.bases}};
   if(type==='1B'||type==='2B'||type==='3B'){
     const n = type==='1B'?1:type==='2B'?2:3;
-    bs.AB++; bs.H++;
     const runs = advanceRunners(g, n);
     if(runs){ g.us += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + runs; }
   }
   else if(type==='HR'){
-    bs.AB++; bs.H++; bs.HR++; bs.R++;
     const runs = advanceRunners(g, 4);
     g.us += runs;
     ensureInningRow(g, g.inning-1);
     g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + runs;
   }
   else if(type==='BB'){
-    bs.BB++;
     const runs = forceWalk(g);
     if(runs){ g.us += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + runs; }
   }
-  else if(type==='OUT'){ bs.AB++; g.outs++; }
+  else if(type==='OUT'){ g.outs++; }
   g.batterPtr++;
   switchHalfIfNeeded(g);
-  g.log.push({store:'bat', name:batter, type, prevStat, prevGame});
+  g.log.push({store:'bat', name:batter, type, prevGame});
   render();
 }
 function recordPitch(ns, type){
@@ -758,30 +778,24 @@ function recordPitch(ns, type){
   if(g.half==='us'){ toast('現在我隊在打擊,先記錄打者那邊'); return; }
   const pitcher = activePitcher(ns);
   if(!pitcher){ toast('請先在打序中指定投手,或用下拉選單選投手'); return; }
-  const ps = statOf(pitchingStats, pitcher);
-  const prevStat = {...ps};
   const prevGame = {...g, innings: g.innings.map(r=>({...r})), bases: {...g.bases}};
-  if(type==='OUT'){ ps.outs++; g.outs++; }
-  else if(type==='K'){ ps.K++; ps.outs++; g.outs++; }
+  if(type==='OUT'){ g.outs++; }
+  else if(type==='K'){ g.outs++; }
   else if(type==='H'){
-    ps.H++;
     const runs = advanceRunners(g, 1);
     if(runs){ g.them += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + runs; }
   }
   else if(type==='BB'){
-    ps.BB++;
     const runs = forceWalk(g);
     if(runs){ g.them += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + runs; }
   }
   else if(type==='R'){
-    ps.R++; g.them++;
+    g.them++;
     ensureInningRow(g, g.inning-1);
     g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + 1;
   }
-  else if(type==='ER') ps.ER++;
-  else if(type==='W') ps.W++;
   switchHalfIfNeeded(g);
-  g.log.push({store:'pitch', name:pitcher, type, prevStat, prevGame});
+  g.log.push({store:'pitch', name:pitcher, type, prevGame});
   render();
 }
 function recordOppRun(ns){
@@ -798,8 +812,6 @@ function undoLast(ns){
   const g = liveGame[ns];
   if(!g || !g.log.length){ toast('沒有可以復原的紀錄'); return; }
   const last = g.log.pop();
-  if(last.store==='bat') battingStats[last.name] = last.prevStat;
-  if(last.store==='pitch') pitchingStats[last.name] = last.prevStat;
   Object.assign(g, last.prevGame);
   render();
 }
@@ -902,6 +914,8 @@ function render(){
 
 function viewHome(){
   const nextGame = schedule.find(s=>!s.result) || null;
+  const season = computeSeasonStats();
+  const myBat = statOf(season.bat, selectedStatPlayer);
   return `
   <section>
     <div class="card">
@@ -923,12 +937,12 @@ function viewHome(){
         <select id="statPlayerSel">${activeRoster().map(p=>`<option value="${p.name}" ${p.name===selectedStatPlayer?'selected':''}>#${p.no} ${p.name}</option>`).join('')}</select>
       </div>
       <div class="stat-grid">
-        <div class="stat-box"><div class="lbl">打擊率</div><div class="val">${avgOf(selectedStatPlayer)}</div></div>
-        <div class="stat-box"><div class="lbl">安打</div><div class="val">${statOf(battingStats,selectedStatPlayer).H}</div></div>
-        <div class="stat-box"><div class="lbl">全壘打</div><div class="val">${statOf(battingStats,selectedStatPlayer).HR}</div></div>
-        <div class="stat-box"><div class="lbl">打數</div><div class="val">${statOf(battingStats,selectedStatPlayer).AB}</div></div>
-        <div class="stat-box"><div class="lbl">保送</div><div class="val">${statOf(battingStats,selectedStatPlayer).BB}</div></div>
-        <div class="stat-box"><div class="lbl">得分</div><div class="val">${statOf(battingStats,selectedStatPlayer).R}</div></div>
+        <div class="stat-box"><div class="lbl">打擊率</div><div class="val">${avgOf(season.bat,selectedStatPlayer)}</div></div>
+        <div class="stat-box"><div class="lbl">安打</div><div class="val">${myBat.H}</div></div>
+        <div class="stat-box"><div class="lbl">全壘打</div><div class="val">${myBat.HR}</div></div>
+        <div class="stat-box"><div class="lbl">打數</div><div class="val">${myBat.AB}</div></div>
+        <div class="stat-box"><div class="lbl">保送</div><div class="val">${myBat.BB}</div></div>
+        <div class="stat-box"><div class="lbl">得分</div><div class="val">${myBat.R}</div></div>
       </div>
     </div>
   </section>
@@ -1087,16 +1101,17 @@ function statsCup(){
 }
 
 function computeLeaderboard(kind){
+  const season = computeSeasonStats();
   if(kind==='avg' || kind==='hits'){
-    return Object.keys(battingStats)
-      .filter(n=>battingStats[n].AB>0)
-      .map(n=>({name:n, team:'南機場', ab:battingStats[n].AB, h:battingStats[n].H}))
+    return Object.keys(season.bat)
+      .filter(n=>season.bat[n].AB>0)
+      .map(n=>({name:n, team:'南機場', ab:season.bat[n].AB, h:season.bat[n].H}))
       .sort((a,b)=> kind==='avg' ? (b.h/b.ab)-(a.h/a.ab) : b.h-a.h)
       .map(r=> ({name:r.name, team:r.team, val: kind==='avg' ? (r.h/r.ab).toFixed(3).replace(/^0/,'') : String(r.h), color:'#F2801E'}));
   }
-  return Object.keys(pitchingStats)
-    .filter(n=>pitchingStats[n].outs>0 || pitchingStats[n].W>0)
-    .map(n=>({name:n, team:'南機場', w:pitchingStats[n].W, era:parseFloat(eraOf(n))}))
+  return Object.keys(season.pitch)
+    .filter(n=>season.pitch[n].outs>0 || season.pitch[n].W>0)
+    .map(n=>({name:n, team:'南機場', w:season.pitch[n].W, era:parseFloat(eraOf(season.pitch,n))}))
     .sort((a,b)=> kind==='wins' ? b.w-a.w : a.era-b.era)
     .map(r=> ({name:r.name, team:r.team, val: kind==='wins' ? String(r.w) : r.era.toFixed(2), color:'#2F6FED'}));
 }
@@ -1241,7 +1256,8 @@ function renderPlayerEditForm(idx){
     <div class="form-row"><label>守備位置</label><input id="editPos" value="${p.pos||''}" /></div>
     <div class="form-row"><label>目前狀況(留空 = 正常在隊)</label><input id="editStatus" value="${p.status||''}" placeholder="例如:職涯發展、時間問題(留空代表已恢復)" /></div>
 
-    <div class="section-title" style="margin:16px 0 8px;font-size:13px;">打擊數據(輸錯可以直接改)</div>
+    <div class="section-title" style="margin:16px 0 8px;font-size:13px;">打擊數據校正值</div>
+    <div style="font-size:10.5px;color:var(--muted);margin:-4px 0 8px;line-height:1.6;">這裡是額外加減用的校正值,不含任何一場比賽紀錄的數字。球季總數 = 這裡 + 所有比賽紀錄加總。要修正某一場打錯的數字,去「賽程」點該場比賽、或直接刪除那場重記。</div>
     <div class="form-2col">
       <div class="form-row"><label>打數</label><input id="editAB" value="${bs.AB}" inputmode="numeric" /></div>
       <div class="form-row"><label>安打</label><input id="editH" value="${bs.H}" inputmode="numeric" /></div>
@@ -1387,6 +1403,14 @@ function viewGameDetail(){
     <div class="section-title">投手紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxPitching(rec.box.pitch)}</div>
   </section>
+  ${isAdmin() ? `
+  <section>
+    <div class="card">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">刪除這場紀錄會把它的打擊/投手數據一起從球季總數移除,聯賽戰績不會自動跟著改回去,需要的話去「戰績」手動調整。</div>
+      <button class="btn-outline" style="color:var(--bad);border-color:var(--bad);" data-action="deleteGameRecord" data-id="${rec.id}">刪除這場紀錄</button>
+    </div>
+  </section>
+  ` : ''}
   `;
 }
 
@@ -1424,7 +1448,8 @@ function viewRecord(){
   const order = orderArrOf(ns).filter(r=>r.player);
   const g = liveGame[ns];
   const pitcher = activePitcher(ns);
-  const ps = pitcher ? statOf(pitchingStats, pitcher) : null;
+  const liveBox = g ? computeGameBoxScore(g) : null;
+  const ps = (liveBox && pitcher) ? statOf(liveBox.pitch, pitcher) : null;
   const currentBatter = (g && order.length) ? order[g.batterPtr % order.length].player : '';
   const upcoming = schedule.filter(s=> s.type === (ns==='cup'?'盃賽':'聯賽'));
 
@@ -1506,7 +1531,7 @@ function viewRecord(){
         <button class="btn-outline" style="margin:0;" data-pitch="ER" data-ns="${ns}">自責分</button>
         <button class="btn-primary" style="margin:0;grid-column:span 2;" data-pitch="W" data-ns="${ns}">勝投 +1</button>
       </div>
-      <div style="font-size:12.5px;color:var(--muted);margin-top:10px;">IP ${ps?ipOf(pitcher):'0.0'} | H ${ps?ps.H:0} | BB ${ps?ps.BB:0} | K ${ps?ps.K:0} | R ${ps?ps.R:0} | ER ${ps?ps.ER:0} | W ${ps?ps.W:0}</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:10px;">IP ${ps?ipOf(liveBox.pitch,pitcher):'0.0'} | H ${ps?ps.H:0} | BB ${ps?ps.BB:0} | K ${ps?ps.K:0} | R ${ps?ps.R:0} | ER ${ps?ps.ER:0} | W ${ps?ps.W:0}</div>
     </div>
   </section>
 
@@ -1579,8 +1604,8 @@ function viewSettings(){
   <section>
     <div class="section-title">危險區域</div>
     <div class="card">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">把所有球員的打擊/投手累積數據清空歸零(測試資料清乾淨用),賽程、名單、戰績都不會動。這個動作沒辦法復原。</div>
-      <button class="btn-outline" style="color:var(--bad);border-color:var(--bad);" data-action="resetStats">清空打擊/投手數據</button>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">把「打擊數據校正值」清空歸零(球員編輯表單那個手動調整值),不會動到任何一場比賽紀錄的數字、也不會動賽程/名單/戰績。要清掉某場比賽的數據,去該場比賽紀錄裡刪除。這個動作沒辦法復原。</div>
+      <button class="btn-outline" style="color:var(--bad);border-color:var(--bad);" data-action="resetStats">清空校正值</button>
     </div>
   </section>
   ` : ''}
@@ -1805,6 +1830,19 @@ function bindDynamicHandlers(){
         return;
       }
       if(act==='refreshMembers'){ refreshMembers(); return; }
+      if(act==='deleteGameRecord'){
+        if(!requireAdmin())return;
+        if(!confirm('確定要刪除這場比賽紀錄嗎?打擊/投手數據會一起消失,沒辦法復原。')) return;
+        const id = el.dataset.id;
+        const idx = gameHistory.findIndex(r=>r.id===id);
+        if(idx>=0) gameHistory.splice(idx,1);
+        const sched = schedule.find(s=>s.historyId===id);
+        if(sched){ delete sched.historyId; delete sched.result; }
+        currentView = 'schedule';
+        setActiveNav(); render();
+        toast('已刪除這場紀錄');
+        return;
+      }
       if(act==='toggleRole'){ toggleMemberRole(el.dataset.id, el.dataset.role); return; }
       if(act==='addAccount'){ toast('這台裝置僅支援單一本機帳號,多人共用需接上第 6 點的雲端同步'); return; }
       if(act==='logout'){ doLogout(); return; }
