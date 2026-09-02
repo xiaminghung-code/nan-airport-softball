@@ -1343,7 +1343,7 @@ function renderPlayerEditForm(idx){
 }
 
 function usedPlayers(orderArr, excludeIdx){ return orderArr.filter((r,i)=>i!==excludeIdx && r.player).map(r=>r.player); }
-function usedPositions(orderArr, excludeIdx){ return orderArr.filter((r,i)=>i!==excludeIdx && r.pos).map(r=>r.pos); }
+function usedPositions(orderArr, excludeIdx){ return orderArr.filter((r,i)=>i!==excludeIdx && r.pos && r.pos!=='EP').map(r=>r.pos); }
 
 function playerOptions(selected, pool, exclude){
   const ex = exclude||[];
@@ -1353,9 +1353,10 @@ function playerOptions(selected, pool, exclude){
 }
 function posOptions(selected, exclude){
   const ex = exclude||[];
-  return `<option value="">— 守位 —</option>` +
-    fieldPositions.filter(p=> p.key===selected || !ex.includes(p.key))
-        .map(p=>`<option value="${p.key}" ${selected===p.key?'selected':''}>${p.label}</option>`).join('');
+  const regular = fieldPositions.filter(p=> p.key===selected || !ex.includes(p.key))
+      .map(p=>`<option value="${p.key}" ${selected===p.key?'selected':''}>${p.label}</option>`).join('');
+  const ep = `<option value="EP" ${selected==='EP'?'selected':''}>指定球員(EP)</option>`;
+  return `<option value="">— 守位 —</option>` + regular + ep;
 }
 
 function renderBattingOrder(orderArr, pool, ns){
@@ -1374,7 +1375,7 @@ function renderBattingOrder(orderArr, pool, ns){
           <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="pos" style="flex:1;">${posOptions(row.pos, usedPositions(orderArr,i))}</select>
         </div>`).join('')}
       <button class="btn-outline" data-action="addBatter" data-ns="${ns}">+ 新增打者</button>
-      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">每一列同時選「打者」和「守位」,同一個人、同一個守位不會出現在別列的選單裡了,不用擔心選重複。守位可以留空(替補/指定打擊不用守備)。</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">每一列同時選「打者」和「守位」,同一個人、同一個守位不會出現在別列的選單裡了,不用擔心選重複。「指定球員(EP)」可以選很多個人一起選,不受這個限制。守位可以留空(替補/指定打擊不用守備)。</div>
     ` : ''}
   `;
 }
