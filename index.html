@@ -139,7 +139,8 @@
   .table-head{display:flex;gap:0;padding:0 0 8px;border-bottom:1px solid var(--line);font-size:10.5px;color:var(--muted);}
 
   .stage-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;margin-bottom:12px;}
-  .stage-pill{flex-shrink:0;font-size:12px;font-weight:700;padding:7px 14px;border-radius:100px;background:var(--chip);color:var(--muted);white-space:nowrap;}
+  .stage-pill{flex-shrink:0;font-size:12px;font-weight:700;padding:7px 14px;border-radius:100px;background:var(--chip);color:var(--muted);white-space:nowrap;cursor:pointer;}
+  .stage-pill.active{background:var(--accent);color:#fff;}
 
   /* leaderboard */
   .subtabs{display:flex;gap:6px;margin-bottom:14px;background:var(--chip);padding:4px;border-radius:10px;}
@@ -916,6 +917,7 @@ let leagueName = '好樣聯盟';
 let totalGames = 10;
 let lineupExpanded = { lg:true, cup:true };
 let gameLogExpanded = false;
+let selectedCupStage = null;
 
 function toast(msg){
   const t = document.getElementById('toast');
@@ -1097,11 +1099,27 @@ function statsCup(){
     <div class="section-head"><div class="section-title" style="margin:0;">${cupInfo.name}</div>${isAdmin()?'<a data-action="deleteCup">刪除盃賽</a>':''}</div>
 
     <div class="section-title">盃賽階段</div>
-    <div class="stage-row">${cupStages.map(s=>`<div class="stage-pill">${s}</div>`).join('')}</div>
+    <div class="stage-row">
+      <div class="stage-pill ${!selectedCupStage?'active':''}" data-action="selectCupStage" data-stage="">全部</div>
+      ${cupStages.map(s=>`<div class="stage-pill ${selectedCupStage===s?'active':''}" data-action="selectCupStage" data-stage="${s}">${s}</div>`).join('')}
+    </div>
 
     <div class="card">
-      <div class="section-title" style="margin-bottom:8px;">盃賽戰績</div>
-      ${emptyState('尚無已完成盃賽')}
+      <div class="section-title" style="margin-bottom:8px;">盃賽賽程${selectedCupStage?'<span style="font-size:11px;color:var(--muted);font-weight:400;"> · '+selectedCupStage+'</span>':''}</div>
+      ${(()=>{
+        const cupGames = schedule.filter(s=>s.type==='盃賽' && (!selectedCupStage || s.stage===selectedCupStage));
+        return cupGames.length ? cupGames.map(g=>{
+          const i = schedule.indexOf(g);
+          return `<div class="sched-item">
+            <span class="sched-tag cup">${g.stage||'未分階段'}</span>
+            <div style="flex:1;min-width:0;${g.historyId?'cursor:pointer;':''}" ${g.historyId?`data-sched-view="${i}"`:''}>
+              <div class="matchup">南機場 vs ${g.opp}${g.result?` <span style="color:var(--header2);">${g.result}</span>`:''}${g.historyId?` <span style="color:var(--muted);font-size:11px;">›</span>`:''}</div>
+              <div class="meta">${g.date||'日期未定'}${g.time?' '+g.time:''}${g.place?' · '+g.place:''}</div>
+            </div>
+          </div>`;
+        }).join('') : emptyState(selectedCupStage?`「${selectedCupStage}」還沒有排賽程`:'尚無盃賽賽程');
+      })()}
+      ${isAdmin()?`<div style="font-size:11px;color:var(--muted);margin-top:8px;">去「賽程」新增,類型選「盃賽」就能指定階段。</div>`:''}
     </div>
 
     <div class="section-title" style="margin-top:18px;">盃賽專屬名單</div>
@@ -1206,6 +1224,10 @@ function viewSchedule(){
         <label>類型</label>
         <select id="schedType"><option value="聯賽">聯賽</option><option value="盃賽">盃賽</option></select>
       </div>
+      <div class="form-row" id="schedStageRow" style="display:none;">
+        <label>盃賽階段</label>
+        <select id="schedStage">${cupStages.map(s=>`<option value="${s}">${s}</option>`).join('')}</select>
+      </div>
       <div class="form-row">
         <label>對手球隊</label>
         <select id="schedOppSel">
@@ -1237,7 +1259,7 @@ function viewSchedule(){
     <div class="card">
       ${schedule.length ? schedule.map((g,i)=>`
         <div class="sched-item">
-          <span class="sched-tag ${g.type==='聯賽'?'league':'cup'}">${g.type}</span>
+          <span class="sched-tag ${g.type==='聯賽'?'league':'cup'}">${g.type}${g.stage?' · '+g.stage:''}</span>
           <div style="flex:1;min-width:0;${g.historyId?'cursor:pointer;':''}" ${g.historyId?`data-sched-view="${i}"`:''}>
             <div class="matchup">南機場 vs ${g.opp}${g.result?` <span style="color:var(--header2);">${g.result}</span>`:''}${g.historyId?` <span style="color:var(--muted);font-size:11px;">›</span>`:''}</div>
             <div class="meta">${g.date||'日期未定'}${g.time?' '+g.time:''}${g.place?' · '+g.place:''}</div>
@@ -1684,6 +1706,10 @@ function bindDynamicHandlers(){
   });
   const statSel = document.getElementById('statPlayerSel');
   if(statSel) statSel.addEventListener('change', ()=>{ selectedStatPlayer = statSel.value; render(); });
+  const schedTypeSel = document.getElementById('schedType');
+  if(schedTypeSel) schedTypeSel.addEventListener('change', ()=>{
+    document.getElementById('schedStageRow').style.display = schedTypeSel.value==='盃賽' ? 'block' : 'none';
+  });
   const schedOppSel = document.getElementById('schedOppSel');
   if(schedOppSel) schedOppSel.addEventListener('change', ()=>{
     document.getElementById('schedOppNew').style.display = schedOppSel.value==='__new__' ? 'block' : 'none';
@@ -1772,6 +1798,7 @@ function bindDynamicHandlers(){
       }
       if(act==='toggleLineup'){ lineupExpanded[el.dataset.ns] = !lineupExpanded[el.dataset.ns]; render(); return; }
       if(act==='toggleGameLog'){ gameLogExpanded = !gameLogExpanded; render(); return; }
+      if(act==='selectCupStage'){ selectedCupStage = el.dataset.stage || null; render(); return; }
       if(act==='showCreateCup'){ if(!requireAdmin())return; showCupForm = true; render(); return; }
       if(act==='confirmCreateCup'){
         if(!requireAdmin())return;
@@ -1837,6 +1864,7 @@ function bindDynamicHandlers(){
       if(act==='addSchedule'){
         if(!requireAdmin())return;
         const type = document.getElementById('schedType').value;
+        const stage = type==='盃賽' ? document.getElementById('schedStage').value : '';
         const oppSel = document.getElementById('schedOppSel').value;
         const opp = oppSel==='__new__' ? document.getElementById('schedOppNew').value.trim() : oppSel;
         const date = document.getElementById('schedDate').value;
@@ -1844,7 +1872,7 @@ function bindDynamicHandlers(){
         const placeSel = document.getElementById('schedPlaceSel').value;
         const place = placeSel==='__new__' ? document.getElementById('schedPlaceNew').value.trim() : placeSel;
         if(!opp){ toast('請選擇或輸入對手球隊'); return; }
-        schedule.push({type, opp, date, time, place});
+        schedule.push({type, opp, date, time, place, stage});
         sortSchedule();
         render();
         toast('已新增賽程');
