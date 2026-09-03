@@ -108,8 +108,11 @@
   .empty-state b{display:block;color:var(--ink);font-size:14px;font-weight:700;margin-bottom:3px;}
 
   .next-title{font-size:11px;color:var(--muted);font-weight:700;}
-  .next-main{font-size:16px;font-weight:900;margin-top:4px;}
-  .next-sub{font-size:12px;color:var(--muted);margin-top:3px;}
+  .next-main{font-size:20px;font-weight:900;margin-top:6px;}
+  .next-sub{font-size:12.5px;color:var(--muted);margin-top:4px;}
+  .next-card{border-left:4px solid var(--accent);}
+  .eyebrow{font-size:10.5px;color:var(--muted);font-weight:800;letter-spacing:.03em;}
+  .home-divider{height:1px;background:var(--line);margin:12px 0;}
 
   .quick-list .quick-item{
     display:flex;align-items:center;justify-content:space-between;
@@ -1121,7 +1124,7 @@ function viewHome(){
   const myPitch = hasPitching ? myPitchRaw : null;
   return `
   <section>
-    <div class="card">
+    <div class="card next-card">
       <div class="next-title" style="display:flex;justify-content:space-between;align-items:center;">
         <span>下一場比賽</span>
         ${(()=>{ if(!nextGame) return ''; const d = daysUntil(nextGame.date); if(d==null) return ''; const label = d===0?'今天':d===1?'明天':d>1?`還有 ${d} 天`:'已過期'; return `<span style="background:${d<=0?'var(--chip)':'var(--accent-soft)'};color:${d<=0?'var(--muted)':'var(--accent)'};font-size:11px;font-weight:800;padding:3px 10px;border-radius:100px;">${label}</span>`; })()}
@@ -1137,28 +1140,33 @@ function viewHome(){
   </section>
 
   <section>
-    <div class="card">
-      <div class="section-head" style="margin-bottom:${leagueResultsChrono().length?'10px':'0'};">
-        <div class="section-title" style="margin:0;">📈 近況戰績</div>
+    <div class="card" style="padding:14px 16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span class="eyebrow">📈 近況戰績</span>
         ${(()=>{ const st = currentStreak(); if(!st) return ''; const label = st.type==='W'?`連勝 ${st.count}`:st.type==='L'?`連敗 ${st.count}`:`連和 ${st.count}`; const color = st.type==='W'?'#16A34A':st.type==='L'?'#DC2626':'#8592A8'; return `<span style="font-size:11px;font-weight:800;color:${color};">${label}</span>`; })()}
       </div>
+      <div style="margin-top:8px;">
       ${(()=>{
         const recent = leagueResultsChrono().slice(-5);
         if(!recent.length) return emptyState('尚無已完成聯賽','','📈');
         return `<div style="display:flex;gap:7px;">${recent.map(r=>`<div class="form-dot ${r.outcome==='W'?'w':r.outcome==='L'?'l':'t'}" title="vs ${r.opp} ${r.us}:${r.them}">${r.outcome}</div>`).join('')}</div>`;
       })()}
-    </div>
-  </section>
-
-  <section>
-    <div class="card">
-      <div class="next-title" style="margin-bottom:8px;">球季進度</div>
+      </div>
+      <div class="home-divider"></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span class="eyebrow">球季進度</span>
+        ${(()=>{
+          const played = leagueResultsChrono().length + preseasonGamesPlayed;
+          const total = totalGames || 0;
+          const pct = total ? Math.min(100, Math.round(played/total*100)) : 0;
+          return `<span style="font-size:12px;font-weight:800;">已打 ${played}<span style="color:var(--muted);font-weight:400;"> / ${total}</span> <span style="color:var(--accent);">· ${pct}%</span></span>`;
+        })()}
+      </div>
       ${(()=>{
         const played = leagueResultsChrono().length + preseasonGamesPlayed;
         const total = totalGames || 0;
         const pct = total ? Math.min(100, Math.round(played/total*100)) : 0;
-        return `<div style="display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:15px;font-weight:900;">已打 ${played} <span style="font-size:11px;color:var(--muted);font-weight:400;">/ 預計 ${total} 場</span></span><span style="font-size:12px;color:var(--accent);font-weight:800;">${pct}%</span></div>
-        <div class="winrate-bar" style="height:6px;margin-top:8px;"><i style="width:${pct}%;"></i></div>`;
+        return `<div class="winrate-bar" style="height:4px;margin-top:6px;"><i style="width:${pct}%;"></i></div>`;
       })()}
     </div>
   </section>
@@ -1179,7 +1187,7 @@ function viewHome(){
       </div>
       ${myPitch ? `
       <div class="section-head" style="margin-top:14px;">
-        <span style="font-size:12px;color:var(--muted);">投手成績</span>
+        <span class="eyebrow">投手成績</span>
       </div>
       <div class="stat-grid" style="margin-top:8px;">
         <div class="stat-box"><div class="lbl">局數</div><div class="val">${ipOf(season.pitch,selectedStatPlayer)}</div></div>
@@ -1191,7 +1199,7 @@ function viewHome(){
       </div>
       ` : ''}
       <div class="section-head" style="margin-top:14px;">
-        <span style="font-size:12px;color:var(--muted);">單場紀錄(這個人數字是怎麼加出來的)</span>
+        <span class="eyebrow">單場紀錄(這個人數字是怎麼加出來的)</span>
         <a data-action="toggleGameLog">${gameLogExpanded?'收起 ▲':'展開 ▼'}</a>
       </div>
       ${gameLogExpanded ? renderPlayerGameLog(selectedStatPlayer) : ''}
@@ -1330,28 +1338,9 @@ function statsCup(){
       ${isAdmin()?`<div style="font-size:11px;color:var(--muted);margin-top:8px;">去「賽程」新增,類型選「盃賽」就能指定階段。</div>`:''}
     </div>
 
-    <div class="section-title" style="margin-top:18px;">🎫 盃賽專屬名單</div>
+    <div class="section-title" style="margin-top:18px;">🎫 外援 / 傭兵名單</div>
     <div class="card">
-      <div style="font-size:11px;color:var(--muted);line-height:1.6;">隊員與外援只套用於這個盃賽,新增後可依比賽上下排序。</div>
-      ${guestPlayers.length ? `
-        <div style="margin-top:8px;">
-          ${guestPlayers.map((g,i)=>`
-            <div class="guest-row">
-              <div class="g-no">${i+1}</div>
-              <div class="g-name">${g.name}</div>
-              ${isAdmin()?`
-              <div class="g-actions">
-                <button data-guest-up="${i}" ${i===0?'disabled style="opacity:.3"':''}>↑</button>
-                <button data-guest-down="${i}" ${i===guestPlayers.length-1?'disabled style="opacity:.3"':''}>↓</button>
-                <button class="danger" data-guest-remove="${i}">×</button>
-              </div>`:''}
-            </div>`).join('')}
-        </div>` : `<div class="empty-state" style="padding:12px 0 2px;">尚未新增外援</div>`}
-      ${isAdmin() ? (showGuestForm ? `
-        <div class="guest-add-row">
-          <input id="guestNameInput" placeholder="輸入外援姓名" />
-          <button data-action="confirmAddGuest">新增</button>
-        </div>` : `<button class="btn-outline" data-action="showAddGuest">新增外援</button>`) : ''}
+      <div style="font-size:11px;color:var(--muted);line-height:1.6;">外援名單現在跟聯賽共用了,去「球員」頁最下面新增/排序,這邊選好誰要參加這個盃賽就好。</div>
     </div>
 
     <div class="section-title" style="margin-top:18px;">✅ 參賽球員</div>
@@ -1550,6 +1539,31 @@ function viewRoster(){
   <section>
     <div class="section-title">備用背號</div>
     <div class="card">${spares.map(p=>`<span class="roster-chip"><span class="av">備</span>#${p.no}</span>`).join('')}</div>
+  </section>
+  <section>
+    <div class="section-title">🎫 外援 / 傭兵名單</div>
+    <div class="card">
+      <div style="font-size:11px;color:var(--muted);line-height:1.6;">聯賽跟盃賽的打序都能選這裡的人,新增後可依上場優先度上下排序。</div>
+      ${guestPlayers.length ? `
+        <div style="margin-top:8px;">
+          ${guestPlayers.map((g,i)=>`
+            <div class="guest-row">
+              <div class="g-no">${i+1}</div>
+              <div class="g-name">${g.name}</div>
+              ${isAdmin()?`
+              <div class="g-actions">
+                <button data-guest-up="${i}" ${i===0?'disabled style="opacity:.3"':''}>↑</button>
+                <button data-guest-down="${i}" ${i===guestPlayers.length-1?'disabled style="opacity:.3"':''}>↓</button>
+                <button class="danger" data-guest-remove="${i}">×</button>
+              </div>`:''}
+            </div>`).join('')}
+        </div>` : `<div class="empty-state" style="padding:12px 0 2px;">尚未新增外援</div>`}
+      ${isAdmin() ? (showGuestForm ? `
+        <div class="guest-add-row">
+          <input id="guestNameInput" placeholder="輸入外援姓名" />
+          <button data-action="confirmAddGuest">新增</button>
+        </div>` : `<button class="btn-outline" data-action="showAddGuest">新增外援</button>`) : ''}
+    </div>
   </section>
   `;
 }
@@ -1799,7 +1813,7 @@ function renderLineScore(g){
 
 function viewRecord(){
   const ns = recordNs;
-  const pool = ns==='cup' ? cupParticipants : activeRoster().map(p=>p.name);
+  const pool = ns==='cup' ? cupParticipants : [...activeRoster().map(p=>p.name), ...guestPlayers.map(g=>g.name)];
   const order = orderArrOf(ns).filter(r=>r.player);
   const g = liveGame[ns];
   const pitcher = activePitcher(ns);
