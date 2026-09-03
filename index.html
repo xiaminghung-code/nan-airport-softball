@@ -261,6 +261,21 @@
   .pos-badge .pk{font-size:9.5px;font-weight:800;color:var(--header2);}
   .pos-badge .pn{font-size:11.5px;font-weight:700;color:var(--ink);margin-top:1px;white-space:nowrap;}
   .pos-badge.rover .pk{color:var(--accent);}
+  .field-wrap.mini .pos-badge{min-width:34px;padding:2px 4px;border-radius:6px;}
+  .field-wrap.mini .pos-badge .pk{font-size:7px;}
+  .field-wrap.mini .pos-badge .pn{font-size:8.5px;margin-top:0;}
+  .lineup-flex{display:flex;gap:10px;align-items:flex-start;}
+  .lineup-flex .compact-col{flex:1.05;min-width:0;}
+  .lineup-flex .field-col{flex:1;min-width:0;}
+  .compact-lineup{display:flex;flex-direction:column;gap:1px;}
+  .compact-row{display:flex;align-items:center;gap:6px;padding:5px 4px;border-radius:6px;font-size:12px;}
+  .compact-row.at-bat{background:var(--accent-soft);}
+  .compact-row .cno{width:16px;height:16px;border-radius:50%;background:var(--header2);color:#fff;font-size:9px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .compact-row.at-bat .cno{background:var(--accent);}
+  .compact-row .cname{flex:1;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+  .compact-row .cpos{color:var(--muted);font-size:10px;flex-shrink:0;}
+  .sub-panel{background:var(--chip);border-radius:10px;padding:10px;margin-top:10px;}
+  .sub-panel select{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;font-family:'Noto Sans TC',sans-serif;background:var(--card);color:var(--ink);}
 
   .order-row{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--line);border-radius:8px;transition:background .2s;}
   .order-row:last-child{border-bottom:none;}
@@ -1064,6 +1079,8 @@ let totalGames = 10;
 let preseasonGamesPlayed = 10;   // 開始用「記錄比賽」逐局紀錄之前,已經打完但沒有留下逐局紀錄的場數
 let preseasonStreak = { type: 'W', count: 6 }; // 同上,起始連勝/連敗/連和基準值
 let lineupExpanded = { lg:true, cup:true };
+let lineupEditMode = { lg:false, cup:false };
+let subPanelOpen = { lg:false, cup:false };
 let planningScheduleIdx = null;
 let gameLogExpanded = false;
 let selectedCupStage = null;
@@ -1158,6 +1175,7 @@ function viewHome(){
         <div class="next-main">尚未建立賽程</div>
         <div class="next-sub" style="color:var(--header2);font-weight:700;cursor:pointer;" data-nav="schedule">到賽程新增 →</div>
       `}
+      <button class="btn-primary" style="margin-top:12px;" data-nav="record" data-recns="lg">開啟今日比賽紀錄</button>
     </div>
   </section>
 
@@ -1243,14 +1261,6 @@ function viewHome(){
       <div class="quick-item" data-nav="roster">
         <div><div class="t">球員名單</div><div class="d">${roster.filter(p=>p.name!=='備用').length} 位南機場球員</div></div><div class="arrow">›</div>
       </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="section-head"><div class="section-title" style="margin:0;">今日比賽紀錄</div></div>
-    <div class="card">
-      <div class="field-note" style="font-size:11px;color:var(--muted);margin-bottom:8px;">打序、守備陣型、逐球紀錄與投手紀錄。</div>
-      <button class="btn-primary" data-nav="record" data-recns="lg">開啟今日比賽紀錄</button>
     </div>
   </section>
   `;
@@ -1665,6 +1675,18 @@ function posOptions(selected, exclude){
   return `<option value="">— 守位 —</option>` + regular + ep;
 }
 
+function renderCompactLineup(orderArr, curIdx){
+  const filled = orderArr.map((r,i)=>({...r, idx:i})).filter(r=>r.player);
+  if(!filled.length) return `<div style="font-size:11.5px;color:var(--muted);padding:6px 0;">尚未排打序,點右上「編輯」開始排。</div>`;
+  return `<div class="compact-lineup">
+    ${filled.map(row=>`
+      <div class="compact-row ${curIdx!=null && row.idx===curIdx?'at-bat':''}">
+        <span class="cno">${row.idx+1}</span>
+        <span class="cname">${row.player}</span>
+        <span class="cpos">${row.pos==='EP'?'EP':(row.pos?(fieldPositions.find(p=>p.key===row.pos)?.label||row.pos):'—')}</span>
+      </div>`).join('')}
+  </div>`;
+}
 function renderBattingOrder(orderArr, pool, ns, curIdx, bench){
   const filled = orderArr.filter(r=>r.player).length;
   const expanded = lineupExpanded[ns];
@@ -1694,11 +1716,11 @@ function renderBattingOrder(orderArr, pool, ns, curIdx, bench){
   `;
 }
 
-function renderFieldDiagram(orderArr, ns){
+function renderFieldDiagram(orderArr, ns, compact){
   const posMap = {};
   orderArr.forEach(r=>{ if(r.pos) posMap[r.pos] = r.player; });
   return `
-    <div class="field-wrap">
+    <div class="field-wrap ${compact?'mini':''}">
       <svg viewBox="0 0 300 320" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="grassGrad-${ns}" x1="0" y1="0" x2="0" y2="1">
@@ -1726,7 +1748,7 @@ function renderFieldDiagram(orderArr, ns){
           <div class="pn">${posMap[p.key] || '—'}</div>
         </div>`).join('')}
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">守備陣型依打序裡每個人選的守位自動排出來,要換人請回去改打序。</div>
+    ${compact ? '' : `<div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">守備陣型依打序裡每個人選的守位自動排出來,要換人請回去改打序。</div>`}
   `;
 }
 
@@ -1936,18 +1958,55 @@ function viewRecord(){
   </section>
 
   <section>
-    <div class="section-title">打序<span style="font-size:11px;color:var(--muted);font-weight:400;">(同時設定守位)</span></div>
-    <div class="card">${renderBattingOrder(orderArrOf(ns), pool, ns, g && g.half==='us' && currentBatter ? orderArrOf(ns).findIndex(r=>r.player===currentBatter) : null, g && g.scheduleIdx!=null ? schedule[g.scheduleIdx]?.plannedBench : null)}</div>
+    <div class="section-head">
+      <div class="section-title" style="margin:0;">打序 & 守位</div>
+      <a data-action="toggleLineupEdit" data-ns="${ns}">${lineupEditMode[ns] ? '完成 ✓' : '✏️ 編輯'}</a>
+    </div>
+    <div class="card">
+      ${(()=>{
+        const curIdx = g && g.half==='us' && currentBatter ? orderArrOf(ns).findIndex(r=>r.player===currentBatter) : null;
+        const bench = g && g.scheduleIdx!=null ? schedule[g.scheduleIdx]?.plannedBench : null;
+        if(lineupEditMode[ns]){
+          return `
+            ${renderBattingOrder(orderArrOf(ns), pool, ns, curIdx, bench)}
+            <div style="margin-top:14px;">${renderFieldDiagram(orderArrOf(ns), ns)}</div>
+          `;
+        }
+        return `
+          <div class="lineup-flex">
+            <div class="compact-col">${renderCompactLineup(orderArrOf(ns), curIdx)}</div>
+            <div class="field-col">${renderFieldDiagram(orderArrOf(ns), ns, true)}</div>
+          </div>
+          ${bench && bench.length ? `
+            <div style="margin-top:10px;">
+              <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:5px;">🪑 候補待命</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;">${bench.map(n=>`<span style="background:var(--chip);color:var(--muted);font-size:11px;font-weight:700;padding:4px 9px;border-radius:100px;">${n}</span>`).join('')}</div>
+            </div>
+          ` : ''}
+        `;
+      })()}
+    </div>
   </section>
 
   <section>
-    <div class="section-head"><div class="section-title" style="margin:0;">⚾ 守備陣型</div><span style="font-size:11px;color:var(--muted);">壘球十人制,含自由手</span></div>
-    <div class="card">${renderFieldDiagram(orderArrOf(ns), ns)}</div>
-  </section>
-
-  <section>
-    <div class="section-title">目前打者${currentBatter?`:<span style="color:var(--header2);">${currentBatter}</span>`:''}${g&&g.half!=='us'?'<span style="font-size:11px;color:var(--muted);font-weight:400;">(對方打擊中,先記錄下面投手)</span>':''}</div>
+    <div class="section-head">
+      <div class="section-title" style="margin:0;">目前打者${currentBatter?`:<span style="color:var(--header2);">${currentBatter}</span>`:''}${g&&g.half!=='us'?'<span style="font-size:11px;color:var(--muted);font-weight:400;">(對方打擊中,先記錄下面投手)</span>':''}</div>
+      ${g && g.half==='us' && currentBatter ? `<a data-action="toggleSubPanel" data-ns="${ns}">🔄 換人</a>` : ''}
+    </div>
     <div class="card ${g&&g.half!=='us'?'panel-disabled':''}">
+      ${(g && g.half==='us' && currentBatter && subPanelOpen[ns]) ? (()=>{
+        const arr = orderArrOf(ns);
+        const curIdx = arr.findIndex(r=>r.player===currentBatter);
+        const bench = g.scheduleIdx!=null ? schedule[g.scheduleIdx]?.plannedBench : null;
+        const curPos = arr[curIdx]?.pos || '';
+        return `
+        <div class="sub-panel">
+          <div style="font-size:11.5px;font-weight:700;margin-bottom:8px;">換掉「${currentBatter}」(第${curIdx+1}棒)</div>
+          <select data-sub-player data-idx="${curIdx}">${playerOptions('', pool, usedPlayers(arr,curIdx), bench)}</select>
+          <select data-sub-pos data-idx="${curIdx}" style="margin-top:6px;">${posOptions(curPos, usedPositions(arr,curIdx))}</select>
+          <button class="btn-primary" style="margin-top:8px;" data-action="confirmSub" data-ns="${ns}" data-idx="${curIdx}">確認換人</button>
+        </div>`;
+      })() : ''}
       ${g?renderBasesIndicator(g, ns):''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <button class="btn-primary" style="margin:0;" data-rec="1B" data-ns="${ns}">一壘安打</button>
@@ -2255,6 +2314,23 @@ function bindDynamicHandlers(){
       }
       if(act==='toggleLineup'){ lineupExpanded[el.dataset.ns] = !lineupExpanded[el.dataset.ns]; render(); return; }
       if(act==='toggleGameLog'){ gameLogExpanded = !gameLogExpanded; render(); return; }
+      if(act==='toggleLineupEdit'){ lineupEditMode[el.dataset.ns] = !lineupEditMode[el.dataset.ns]; render(); return; }
+      if(act==='toggleSubPanel'){ subPanelOpen[el.dataset.ns] = !subPanelOpen[el.dataset.ns]; render(); return; }
+      if(act==='confirmSub'){
+        const ns = el.dataset.ns;
+        const idx = +el.dataset.idx;
+        const playerSel = document.querySelector('[data-sub-player]');
+        const posSel = document.querySelector('[data-sub-pos]');
+        const arr = orderArrOf(ns);
+        if(!playerSel || !playerSel.value){ toast('請選新上場的球員'); return; }
+        arr[idx].player = playerSel.value;
+        if(posSel) arr[idx].pos = posSel.value;
+        subPanelOpen[ns] = false;
+        if(navigator.vibrate) navigator.vibrate(15);
+        render();
+        toast('已換人');
+        return;
+      }
       if(act==='selectCupStage'){ selectedCupStage = el.dataset.stage || null; render(); return; }
       if(act==='planLineup'){
         if(!requireAdmin())return;
