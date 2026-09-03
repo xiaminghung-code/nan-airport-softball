@@ -853,7 +853,17 @@ function computeGameBoxScore(g){
   return {bat, pitch};
 }
 
-function orderArrOf(ns){ return ns==='cup' ? cupBattingOrder : battingOrder; }
+function orderArrOf(ns){
+  if(ns==='cup') return cupBattingOrder;
+  if(ns && ns.indexOf('plan:')===0){
+    const idx = +ns.slice(5);
+    const s = schedule[idx];
+    if(!s) return [];
+    if(!s.plannedLineup) s.plannedLineup = new Array(10).fill(null).map(()=>({player:'',pos:''}));
+    return s.plannedLineup;
+  }
+  return battingOrder;
+}
 function lineupPitcher(ns){
   const row = orderArrOf(ns).find(r=>r.pos==='P');
   return row ? row.player : '';
@@ -1009,11 +1019,21 @@ function endGame(ns){
   const box = computeGameBoxScore(g);
   const sched = (g.scheduleIdx!=null) ? schedule[g.scheduleIdx] : null;
   const gameType = sched ? sched.type : (ns==='cup'?'盃賽':'聯賽');
-  const lineup = orderArrOf(ns).filter(r=>r.player).map(r=>r.player);
+  const finalOrder = orderArrOf(ns);
+  const lineup = finalOrder.filter(r=>r.player).map(r=>r.player);
+  const substitutions = [];
+  if(g.startingLineup){
+    finalOrder.forEach((row,i)=>{
+      const start = g.startingLineup[i];
+      if(start && start.player && row.player && start.player !== row.player){
+        substitutions.push(`第${i+1}棒:${start.player} → ${row.player}`);
+      }
+    });
+  }
   const record = {
     id: g.id, ns, opp, us: finalUs, them: finalThem, innings: g.innings,
     date: sched?sched.date:'', time: sched?sched.time:'', type: gameType,
-    box, lineup
+    box, lineup, substitutions
   };
   gameHistory.push(record);
   if(sched){ sched.result = `${finalUs}:${finalThem}`; sched.historyId = g.id; }
@@ -1044,6 +1064,7 @@ let totalGames = 10;
 let preseasonGamesPlayed = 10;   // 開始用「記錄比賽」逐局紀錄之前,已經打完但沒有留下逐局紀錄的場數
 let preseasonStreak = { type: 'W', count: 6 }; // 同上,起始連勝/連敗/連和基準值
 let lineupExpanded = { lg:true, cup:true };
+let planningScheduleIdx = null;
 let gameLogExpanded = false;
 let selectedCupStage = null;
 
@@ -1101,6 +1122,7 @@ function render(opts){
   if(currentView==='roster') app.innerHTML = viewRoster();
   if(currentView==='record') app.innerHTML = viewRecord();
   if(currentView==='gameDetail') app.innerHTML = viewGameDetail();
+  if(currentView==='lineupPlan') app.innerHTML = viewLineupPlan();
   if(currentView==='settings') app.innerHTML = viewSettings();
   renderStatBand();
   bindDynamicHandlers();
@@ -1471,15 +1493,19 @@ function viewSchedule(){
 
   <section>
     <div class="card">
-      ${schedule.length ? schedule.map((g,i)=>`
+      ${schedule.length ? schedule.map((g,i)=>{
+        const planned = g.plannedLineup && g.plannedLineup.some(r=>r.player);
+        return `
         <div class="sched-item">
           <span class="sched-tag ${g.type==='聯賽'?'league':'cup'}">${g.type}${g.stage?' · '+g.stage:''}</span>
           <div style="flex:1;min-width:0;${g.historyId?'cursor:pointer;':''}" ${g.historyId?`data-sched-view="${i}"`:''}>
             <div class="matchup"><span class="opp-dot" style="background:${opponentColor(g.opp)};"></span>南機場 vs ${g.opp}${g.result?` <span style="color:var(--header2);">${g.result}</span>`:''}${g.historyId?` <span style="color:var(--muted);font-size:11px;">›</span>`:''}</div>
             <div class="meta">${g.date||'日期未定'}${g.time?' '+g.time:''}${g.place?' · '+g.place:''}</div>
+            ${(!g.historyId && isAdmin()) ? `<a data-action="planLineup" data-idx="${i}" style="font-size:11px;font-weight:700;margin-top:4px;display:inline-block;">${planned?'✅ 已預排打序 · 修改':'🗒️ 預排打序 →'}</a>` : ''}
           </div>
           ${isAdmin()?`<button class="rm" data-sched-remove="${i}">刪除</button>`:''}
-        </div>`).join('') : emptyState('尚無賽程')}
+        </div>`;
+      }).join('') : emptyState('尚無賽程')}
     </div>
   </section>
 
@@ -1624,11 +1650,12 @@ function renderPlayerEditForm(idx){
 function usedPlayers(orderArr, excludeIdx){ return orderArr.filter((r,i)=>i!==excludeIdx && r.player).map(r=>r.player); }
 function usedPositions(orderArr, excludeIdx){ return orderArr.filter((r,i)=>i!==excludeIdx && r.pos && r.pos!=='EP').map(r=>r.pos); }
 
-function playerOptions(selected, pool, exclude){
+function playerOptions(selected, pool, exclude, bench){
   const ex = exclude||[];
+  const benchSet = bench ? new Set(bench) : null;
   return `<option value="">— 選擇球員 —</option>` +
     pool.filter(name=> name===selected || !ex.includes(name))
-        .map(name=>`<option value="${name}" ${selected===name?'selected':''}>${name}</option>`).join('');
+        .map(name=>`<option value="${name}" ${selected===name?'selected':''}>${benchSet&&benchSet.has(name)?'🪑 ':''}${name}</option>`).join('');
 }
 function posOptions(selected, exclude){
   const ex = exclude||[];
@@ -1638,7 +1665,7 @@ function posOptions(selected, exclude){
   return `<option value="">— 守位 —</option>` + regular + ep;
 }
 
-function renderBattingOrder(orderArr, pool, ns, curIdx){
+function renderBattingOrder(orderArr, pool, ns, curIdx, bench){
   const filled = orderArr.filter(r=>r.player).length;
   const expanded = lineupExpanded[ns];
   return `
@@ -1650,7 +1677,7 @@ function renderBattingOrder(orderArr, pool, ns, curIdx){
       ${orderArr.map((row,i)=>`
         <div class="order-row ${curIdx!=null && i===curIdx ? 'at-bat':''}">
           <div class="ord-no">${i+1}</div>
-          <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="player">${playerOptions(row.player, pool, usedPlayers(orderArr,i))}</select>
+          <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="player">${playerOptions(row.player, pool, usedPlayers(orderArr,i), bench)}</select>
           <select data-order-ns="${ns}" data-order-idx="${i}" data-order-field="pos">${posOptions(row.pos, usedPositions(orderArr,i))}</select>
           <div class="move-btns">
             <button class="move-btn" data-move="up" data-order-ns="${ns}" data-order-idx="${i}" ${i===0?'disabled':''} aria-label="上移">▲</button>
@@ -1658,7 +1685,11 @@ function renderBattingOrder(orderArr, pool, ns, curIdx){
           </div>
         </div>`).join('')}
       <button class="btn-outline" data-action="addBatter" data-ns="${ns}">+ 新增打者</button>
-      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">選好打者跟守位,右邊 ▲▼ 可以直接跟上/下一棒交換順序。同一個守位不會出現在別列(EP 例外)。</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">選好打者跟守位,右邊 ▲▼ 可以直接跟上/下一棒交換順序。同一個守位不會出現在別列(EP 例外)。${bench&&bench.length?' 打者選單裡 🪑 開頭的是候補。':''}</div>
+      ${bench && bench.length ? `<div style="margin-top:8px;">
+        <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:5px;">🪑 候補待命</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${bench.map(n=>`<span style="background:var(--chip);color:var(--muted);font-size:11px;font-weight:700;padding:4px 9px;border-radius:100px;">${n}</span>`).join('')}</div>
+      </div>` : ''}
     ` : ''}
   `;
 }
@@ -1742,6 +1773,45 @@ function renderBoxPitching(pitch){
     </table>
   `;
 }
+function viewLineupPlan(){
+  const idx = planningScheduleIdx;
+  const s = schedule[idx];
+  if(!s) return `<section><div class="card">${emptyState('找不到這場賽程')}</div></section>`;
+  const ns = 'plan:'+idx;
+  if(lineupExpanded[ns]===undefined) lineupExpanded[ns] = true;
+  const pool = [...activeRoster().map(p=>p.name), ...guestPlayers.map(g=>g.name)];
+  if(!s.plannedBench) s.plannedBench = [];
+  const starters = new Set(orderArrOf(ns).filter(r=>r.player).map(r=>r.player));
+  return `
+  <section>
+    <a data-nav="schedule" style="font-size:12px;color:var(--header2);font-weight:700;">‹ 返回賽程</a>
+    <div class="card" style="margin-top:10px;">
+      <div class="section-title" style="margin:0;">🗒️ 預排打序 · 南機場 vs ${s.opp}</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:4px;">${s.type}${s.stage?' · '+s.stage:''} · ${s.date||'日期未定'}${s.time?' '+s.time:''}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">先排好先發打序、守位跟候補,比賽當天按「開始比賽」選這場,會自動帶進去,不用臨場才排。中途要換人,記錄比賽時一樣可以直接改。</div>
+    </div>
+  </section>
+  <section>
+    <div class="section-title">打序<span style="font-size:11px;color:var(--muted);font-weight:400;">(同時設定守位)</span></div>
+    <div class="card">${renderBattingOrder(orderArrOf(ns), pool, ns, null)}</div>
+  </section>
+  <section>
+    <div class="section-head"><div class="section-title" style="margin:0;">守備陣型</div></div>
+    <div class="card">${renderFieldDiagram(orderArrOf(ns), ns)}</div>
+  </section>
+  <section>
+    <div class="section-title">🪑 候補名單</div>
+    <div class="card" style="padding:4px 16px;">
+      <div style="font-size:11px;color:var(--muted);line-height:1.6;padding:8px 0 4px;">勾選這場可以隨時上場替補的人。記錄比賽時,打序的球員下拉選單裡候補會特別標示,方便你臨時換人。</div>
+      ${pool.filter(name=>!starters.has(name)).map(name=>`
+        <label class="roster-row" style="cursor:pointer;">
+          <input type="checkbox" data-bench-pick="${name}" data-plan-idx="${idx}" ${s.plannedBench.includes(name)?'checked':''} style="width:18px;height:18px;flex-shrink:0;" />
+          <div class="rinfo"><div class="rname">${name}</div></div>
+        </label>`).join('') || `<div style="font-size:11.5px;color:var(--muted);padding:8px 0;">名單裡的人都排進先發了</div>`}
+    </div>
+  </section>
+  `;
+}
 function viewGameDetail(){
   const rec = gameHistory.find(r=>r.id===viewingGameId);
   if(!rec) return `<section><div class="card">${emptyState('找不到這場比賽的紀錄')}</div></section>`;
@@ -1760,6 +1830,14 @@ function viewGameDetail(){
       <div style="margin-top:12px;overflow-x:auto;">${renderLineScoreStatic(rec)}</div>
     </div>
   </section>
+  ${rec.substitutions && rec.substitutions.length ? `
+  <section>
+    <div class="section-title">🔄 換人紀錄</div>
+    <div class="card">
+      ${rec.substitutions.map(s=>`<div style="font-size:12.5px;padding:5px 0;">${s}</div>`).join('')}
+    </div>
+  </section>
+  ` : ''}
   <section>
     <div class="section-title">🏏 打擊紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxBatting(rec.box.bat, rec.lineup)}</div>
@@ -1859,7 +1937,7 @@ function viewRecord(){
 
   <section>
     <div class="section-title">打序<span style="font-size:11px;color:var(--muted);font-weight:400;">(同時設定守位)</span></div>
-    <div class="card">${renderBattingOrder(orderArrOf(ns), pool, ns, g && g.half==='us' && currentBatter ? orderArrOf(ns).findIndex(r=>r.player===currentBatter) : null)}</div>
+    <div class="card">${renderBattingOrder(orderArrOf(ns), pool, ns, g && g.half==='us' && currentBatter ? orderArrOf(ns).findIndex(r=>r.player===currentBatter) : null, g && g.scheduleIdx!=null ? schedule[g.scheduleIdx]?.plannedBench : null)}</div>
   </section>
 
   <section>
@@ -2037,14 +2115,14 @@ function bindDynamicHandlers(){
 
   app.querySelectorAll('[data-order-ns]').forEach(el=>{
     el.addEventListener('change', ()=>{
-      const arr = el.dataset.orderNs==='cup' ? cupBattingOrder : battingOrder;
+      const arr = orderArrOf(el.dataset.orderNs);
       arr[+el.dataset.orderIdx][el.dataset.orderField] = el.value;
       render();
     });
   });
   app.querySelectorAll('[data-move]').forEach(el=>{
     el.addEventListener('click', ()=>{
-      const arr = el.dataset.orderNs==='cup' ? cupBattingOrder : battingOrder;
+      const arr = orderArrOf(el.dataset.orderNs);
       const idx = +el.dataset.orderIdx;
       const swapWith = el.dataset.move==='up' ? idx-1 : idx+1;
       if(swapWith<0 || swapWith>=arr.length) return;
@@ -2055,7 +2133,7 @@ function bindDynamicHandlers(){
   });
   app.querySelectorAll('[data-pos-pick]').forEach(el=>{
     el.addEventListener('click', ()=>{
-      const arr = el.dataset.orderNs==='cup' ? cupBattingOrder : battingOrder;
+      const arr = orderArrOf(el.dataset.orderNs);
       const idx = +el.dataset.orderIdx;
       const val = el.dataset.posPick;
       const row = arr[idx];
@@ -2071,6 +2149,17 @@ function bindDynamicHandlers(){
       const name = el.dataset.cupPick;
       if(el.checked){ if(!cupParticipants.includes(name)) cupParticipants.push(name); }
       else{ cupParticipants = cupParticipants.filter(n=>n!==name); }
+      render();
+    });
+  });
+  app.querySelectorAll('[data-bench-pick]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const s = schedule[+el.dataset.planIdx];
+      if(!s) return;
+      const name = el.dataset.benchPick;
+      if(!s.plannedBench) s.plannedBench = [];
+      if(el.checked){ if(!s.plannedBench.includes(name)) s.plannedBench.push(name); }
+      else{ s.plannedBench = s.plannedBench.filter(n=>n!==name); }
       render();
     });
   });
@@ -2161,12 +2250,19 @@ function bindDynamicHandlers(){
         return;
       }
       if(act==='addBatter'){
-        if(el.dataset.ns==='cup') cupBattingOrder.push({player:'',pos:''}); else battingOrder.push({player:'',pos:''});
+        orderArrOf(el.dataset.ns).push({player:'',pos:''});
         render(); return;
       }
       if(act==='toggleLineup'){ lineupExpanded[el.dataset.ns] = !lineupExpanded[el.dataset.ns]; render(); return; }
       if(act==='toggleGameLog'){ gameLogExpanded = !gameLogExpanded; render(); return; }
       if(act==='selectCupStage'){ selectedCupStage = el.dataset.stage || null; render(); return; }
+      if(act==='planLineup'){
+        if(!requireAdmin())return;
+        planningScheduleIdx = +el.dataset.idx;
+        currentView = 'lineupPlan';
+        setActiveNav(); render();
+        return;
+      }
       if(act==='showCreateCup'){ if(!requireAdmin())return; showCupForm = true; render(); return; }
       if(act==='confirmCreateCup'){
         if(!requireAdmin())return;
@@ -2259,8 +2355,18 @@ function bindDynamicHandlers(){
         if(!opp) opp = (oppInput?.value||'').trim();
         if(!opp){ toast('請選一場比賽或輸入對手球隊'); return; }
         liveGame[ns] = newLiveState(opp, pendingBatFirst[ns], scheduleIdx);
+        const sched = scheduleIdx!=null ? schedule[scheduleIdx] : null;
+        if(sched && sched.plannedLineup && sched.plannedLineup.some(r=>r.player)){
+          const target = orderArrOf(ns);
+          target.length = 0;
+          sched.plannedLineup.forEach(r=> target.push({player:r.player||'', pos:r.pos||''}));
+          toast('比賽開始,已帶入預排打序!');
+        } else {
+          toast('比賽開始,加油!');
+        }
+        liveGame[ns].startingLineup = orderArrOf(ns).map(r=>({player:r.player, pos:r.pos}));
         pendingGameChoice[ns] = {sel:'', opp:''};
-        render(); toast('比賽開始,加油!');
+        render();
         return;
       }
       if(act==='undo'){ undoLast(el.dataset.ns); return; }
@@ -2331,7 +2437,8 @@ function setActiveNav(){
     b.classList.toggle('active',
       b.dataset.view===currentView ||
       (currentView==='record' && b.dataset.view==='home') ||
-      (currentView==='gameDetail' && b.dataset.view==='schedule'));
+      (currentView==='gameDetail' && b.dataset.view==='schedule') ||
+      (currentView==='lineupPlan' && b.dataset.view==='schedule'));
   });
 }
 
