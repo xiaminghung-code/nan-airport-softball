@@ -1958,24 +1958,26 @@ function viewRecord(){
   </section>
 
   <section>
-    <div class="section-head">
-      <div class="section-title" style="margin:0;">打序 & 守位</div>
-      <a data-action="toggleLineupEdit" data-ns="${ns}">${lineupEditMode[ns] ? '完成 ✓' : '✏️ 編輯'}</a>
-    </div>
-    <div class="card">
-      ${(()=>{
-        const curIdx = g && g.half==='us' && currentBatter ? orderArrOf(ns).findIndex(r=>r.player===currentBatter) : null;
-        const bench = g && g.scheduleIdx!=null ? schedule[g.scheduleIdx]?.plannedBench : null;
-        if(lineupEditMode[ns]){
-          return `
-            ${renderBattingOrder(orderArrOf(ns), pool, ns, curIdx, bench)}
-            <div style="margin-top:14px;">${renderFieldDiagram(orderArrOf(ns), ns)}</div>
-          `;
-        }
-        return `
+    ${(()=>{
+      const selectedPlanIdx = (!g && pendingGameChoice[ns].sel !== '') ? +pendingGameChoice[ns].sel : null;
+      const previewingPlan = !g && selectedPlanIdx!=null && schedule[selectedPlanIdx]?.plannedLineup;
+      const lineupNs = previewingPlan ? 'plan:'+selectedPlanIdx : ns;
+      const curIdx = g && g.half==='us' && currentBatter ? orderArrOf(lineupNs).findIndex(r=>r.player===currentBatter) : null;
+      const bench = g ? (g.scheduleIdx!=null ? schedule[g.scheduleIdx]?.plannedBench : null) : (selectedPlanIdx!=null ? schedule[selectedPlanIdx]?.plannedBench : null);
+      return `
+      <div class="section-head">
+        <div class="section-title" style="margin:0;">打序 & 守位${previewingPlan?'<span style="font-size:11px;color:var(--accent);font-weight:700;"> · 預排預覽</span>':''}</div>
+        <a data-action="toggleLineupEdit" data-ns="${lineupNs}">${lineupEditMode[lineupNs] ? '完成 ✓' : '✏️ 編輯'}</a>
+      </div>
+      <div class="card">
+        ${previewingPlan ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6;">這是這場比賽預排好的打序,按「開始比賽」後會自動帶入。要現在改就點編輯。</div>` : ''}
+        ${lineupEditMode[lineupNs] ? `
+          ${renderBattingOrder(orderArrOf(lineupNs), pool, lineupNs, curIdx, bench)}
+          <div style="margin-top:14px;">${renderFieldDiagram(orderArrOf(lineupNs), lineupNs)}</div>
+        ` : `
           <div class="lineup-flex">
-            <div class="compact-col">${renderCompactLineup(orderArrOf(ns), curIdx)}</div>
-            <div class="field-col">${renderFieldDiagram(orderArrOf(ns), ns, true)}</div>
+            <div class="compact-col">${renderCompactLineup(orderArrOf(lineupNs), curIdx)}</div>
+            <div class="field-col">${renderFieldDiagram(orderArrOf(lineupNs), lineupNs, true)}</div>
           </div>
           ${bench && bench.length ? `
             <div style="margin-top:10px;">
@@ -1983,9 +1985,10 @@ function viewRecord(){
               <div style="display:flex;flex-wrap:wrap;gap:6px;">${bench.map(n=>`<span style="background:var(--chip);color:var(--muted);font-size:11px;font-weight:700;padding:4px 9px;border-radius:100px;">${n}</span>`).join('')}</div>
             </div>
           ` : ''}
-        `;
-      })()}
-    </div>
+        `}
+      </div>
+      `;
+    })()}
   </section>
 
   <section>
