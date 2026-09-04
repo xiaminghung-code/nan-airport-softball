@@ -1546,7 +1546,7 @@ function viewSchedule(){
 let editingPlayerIdx = null;
 
 function viewRoster(){
-  const main = roster.filter(p=>p.name!=="備用");
+  const main = roster.filter(p=>p.name!=="備用").slice().sort((a,b)=> (a.status?1:0) - (b.status?1:0));
   const spares = roster.filter(p=>p.name==="備用");
   return `
   <section>
