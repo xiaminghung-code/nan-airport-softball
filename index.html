@@ -689,14 +689,25 @@ let showGuestForm = false;
 let battingStats = {};
 let pitchingStats = {};
 function statOf(store, name){
-  if(!store[name]) store[name] = {AB:0,H:0,BB:0,R:0,HR:0,outs:0,K:0,ER:0,W:0};
+  if(!store[name]) store[name] = {AB:0,H:0,BB:0,R:0,HR:0,_2B:0,_3B:0,outs:0,K:0,ER:0,W:0};
   return store[name];
 }
+function obpOf(s){ const pa = (s.AB||0)+(s.BB||0); return pa ? ((s.H||0)+(s.BB||0))/pa : 0; }
+function slgOf(s){
+  if(!s.AB) return 0;
+  const doubles = s._2B||0, triples = s._3B||0, hr = s.HR||0;
+  const singles = Math.max(0,(s.H||0) - doubles - triples - hr);
+  const totalBases = singles + doubles*2 + triples*3 + hr*4;
+  return totalBases / s.AB;
+}
+function opsOf(s){ return obpOf(s) + slgOf(s); }
+function fmt3(n){ return n.toFixed(3).replace(/^0\./,'.').replace(/^-0\./,'-.'); }
 function mergeStatsInto(target, source){
   Object.keys(source||{}).forEach(name=>{
     const s = source[name];
     const t = statOf(target, name);
     t.AB+=s.AB||0; t.H+=s.H||0; t.BB+=s.BB||0; t.R+=s.R||0; t.HR+=s.HR||0;
+    t._2B+=s._2B||0; t._3B+=s._3B||0;
     t.outs+=s.outs||0; t.K+=s.K||0; t.ER+=s.ER||0; t.W+=s.W||0;
   });
 }
@@ -756,7 +767,7 @@ function gameMVP(rec){
   let best = null, bestScore = -Infinity, bestType = null, bestStat = null;
   Object.keys(rec.box.bat||{}).forEach(name=>{
     const s = rec.box.bat[name];
-    const score = (s.H||0) + (s.HR||0)*2 + (s.R||0)*0.5 + (s.BB||0)*0.3;
+    const score = opsOf(s)*4 + (s.HR||0)*1 + (s.R||0)*0.3;
     if(score>bestScore){ bestScore = score; best = name; bestType='bat'; bestStat = s; }
   });
   Object.keys(rec.box.pitch||{}).forEach(name=>{
@@ -771,6 +782,7 @@ function gameMVP(rec){
     if(bestStat.HR) parts.push(`${bestStat.HR}支全壘打`);
     if(bestStat.R) parts.push(`貢獻${bestStat.R}分`);
     if(bestStat.BB) parts.push(`${bestStat.BB}次保送`);
+    parts.push(`OPS ${fmt3(opsOf(bestStat))}`);
     line = parts.join('、');
   } else {
     const parts = [`主投${Math.floor(bestStat.outs/3)}.${bestStat.outs%3}局`];
@@ -854,7 +866,9 @@ function computeGameBoxScore(g){
   g.log.forEach(entry=>{
     if(entry.store==='bat'){
       const bs = statOf(bat, entry.name); const t = entry.type;
-      if(t==='1B'||t==='2B'||t==='3B'){ bs.AB++; bs.H++; }
+      if(t==='1B'){ bs.AB++; bs.H++; }
+      else if(t==='2B'){ bs.AB++; bs.H++; bs._2B++; }
+      else if(t==='3B'){ bs.AB++; bs.H++; bs._3B++; }
       else if(t==='HR'){ bs.AB++; bs.H++; bs.HR++; bs.R++; }
       else if(t==='BB'){ bs.BB++; }
       else if(t==='OUT'){ bs.AB++; }
@@ -1799,6 +1813,37 @@ function renderBoxPitching(pitch){
     </table>
   `;
 }
+function renderCumulativeBatting(bat, lineup){
+  let names = Object.keys(bat);
+  if(!names.length) return '';
+  if(lineup && lineup.length){
+    names = names.slice().sort((a,b)=>{
+      const ia = lineup.indexOf(a), ib = lineup.indexOf(b);
+      if(ia===-1 && ib===-1) return 0;
+      if(ia===-1) return 1;
+      if(ib===-1) return -1;
+      return ia-ib;
+    });
+  }
+  const season = computeSeasonStats();
+  return `
+    <table class="linescore">
+      <tr><th style="text-align:left;">打者</th><th>打數</th><th>安打</th><th>全壘打</th><th>打擊率</th><th>OPS</th></tr>
+      ${names.map(n=>{ const s = statOf(season.bat, n); return `<tr><td style="text-align:left;">${n}</td><td>${s.AB}</td><td>${s.H}</td><td>${s.HR}</td><td>${fmt3(s.AB?s.H/s.AB:0)}</td><td>${fmt3(opsOf(s))}</td></tr>`; }).join('')}
+    </table>
+  `;
+}
+function renderCumulativePitching(pitch){
+  const names = Object.keys(pitch);
+  if(!names.length) return '';
+  const season = computeSeasonStats();
+  return `
+    <table class="linescore">
+      <tr><th style="text-align:left;">投手</th><th>局數</th><th>三振</th><th>自責分</th><th>防禦率</th><th>勝</th></tr>
+      ${names.map(n=>{ const s = statOf(season.pitch, n); return `<tr><td style="text-align:left;">${n}</td><td>${ipOf(season.pitch,n)}</td><td>${s.K}</td><td>${s.ER}</td><td>${eraOf(season.pitch,n)}</td><td>${s.W}</td></tr>`; }).join('')}
+    </table>
+  `;
+}
 function viewLineupPlan(){
   const idx = planningScheduleIdx;
   const s = schedule[idx];
@@ -1867,13 +1912,21 @@ function viewGameDetail(){
   <section>
     <div class="section-title">🏏 打擊紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxBatting(rec.box.bat, rec.lineup)}</div>
+    <div class="card" style="overflow-x:auto;margin-top:8px;">
+      <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;">📊 球季累積(含這場)</div>
+      ${renderCumulativeBatting(rec.box.bat, rec.lineup)}
+    </div>
   </section>
   <section>
     <div class="section-title">⚾ 投手紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxPitching(rec.box.pitch)}</div>
+    <div class="card" style="overflow-x:auto;margin-top:8px;">
+      <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;">📊 球季累積(含這場)</div>
+      ${renderCumulativePitching(rec.box.pitch)}
+    </div>
   </section>
   <section>
-    <div class="card"><div style="font-size:11px;color:var(--muted);line-height:1.6;">🤖 MVP 是依這場的安打、全壘打、保送、三振、局數等數字自動算出來的參考值,不是正式獎項。</div></div>
+    <div class="card"><div style="font-size:11px;color:var(--muted);line-height:1.6;">🤖 MVP 是依這場的 OPS(上壘率+長打率)、全壘打、得分、或投手局數/三振/自責分/勝投等數字自動算出來的參考值,不是正式獎項。</div></div>
   </section>
   ${isAdmin() ? `
   <section>
