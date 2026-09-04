@@ -317,6 +317,7 @@
   }
   nav.bottom button{flex:1;background:none;border:none;color:#9AA6BB;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;font-family:'Noto Sans TC',sans-serif;padding:6px 0;cursor:pointer;position:relative;}
   nav.bottom button.active{color:var(--header2);font-weight:700;}
+  .edit-actions{position:sticky;bottom:66px;display:flex;gap:8px;margin-top:14px;padding:10px 0 2px;background:var(--card);border-top:1px solid var(--line);z-index:15;}
   nav.bottom button.active::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:22px;height:3px;border-radius:0 0 3px 3px;background:linear-gradient(90deg,var(--header2),var(--accent));}
   nav.bottom .icon{font-size:17px;}
 
@@ -1653,9 +1654,9 @@ function renderPlayerEditForm(idx){
     </div>
     <div class="form-row"><label>勝投</label><input id="editW" value="${ps.W}" inputmode="numeric" /></div>
 
-    <div style="display:flex;gap:8px;margin-top:6px;">
-      <button class="btn-primary" style="flex:1;" data-action="saveEditPlayer" data-idx="${idx}">儲存</button>
-      <button class="btn-outline" style="flex:1;" data-action="cancelEditPlayer">取消</button>
+    <div class="edit-actions">
+      <button class="btn-primary" style="flex:1;margin:0;" data-action="saveEditPlayer" data-idx="${idx}">儲存</button>
+      <button class="btn-outline" style="flex:1;margin:0;" data-action="cancelEditPlayer">取消</button>
     </div>
   </div>`;
 }
@@ -2389,7 +2390,7 @@ function bindDynamicHandlers(){
         if(!requireAdmin())return;
         const idx = +el.dataset.idx;
         const p = roster[idx];
-        if(!p){ editingPlayerIdx = null; render(); return; }
+        if(!p){ editingPlayerIdx = null; render(); toast('找不到這位球員,請重新點選編輯'); return; }
         const oldName = p.name;
         const newName = document.getElementById('editName')?.value.trim() || p.name;
         p.name = newName;
