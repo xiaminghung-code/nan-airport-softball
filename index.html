@@ -689,7 +689,7 @@ let showGuestForm = false;
 let battingStats = {};
 let pitchingStats = {};
 function statOf(store, name){
-  if(!store[name]) store[name] = {AB:0,H:0,BB:0,R:0,HR:0,_2B:0,_3B:0,outs:0,K:0,ER:0,W:0};
+  if(!store[name]) store[name] = {AB:0,H:0,BB:0,R:0,HR:0,_2B:0,_3B:0,RBI:0,outs:0,K:0,ER:0,W:0};
   return store[name];
 }
 function obpOf(s){ const pa = (s.AB||0)+(s.BB||0); return pa ? ((s.H||0)+(s.BB||0))/pa : 0; }
@@ -707,7 +707,7 @@ function mergeStatsInto(target, source){
     const s = source[name];
     const t = statOf(target, name);
     t.AB+=s.AB||0; t.H+=s.H||0; t.BB+=s.BB||0; t.R+=s.R||0; t.HR+=s.HR||0;
-    t._2B+=s._2B||0; t._3B+=s._3B||0;
+    t._2B+=s._2B||0; t._3B+=s._3B||0; t.RBI+=s.RBI||0;
     t.outs+=s.outs||0; t.K+=s.K||0; t.ER+=s.ER||0; t.W+=s.W||0;
   });
 }
@@ -869,9 +869,13 @@ function computeGameBoxScore(g){
       if(t==='1B'){ bs.AB++; bs.H++; }
       else if(t==='2B'){ bs.AB++; bs.H++; bs._2B++; }
       else if(t==='3B'){ bs.AB++; bs.H++; bs._3B++; }
-      else if(t==='HR'){ bs.AB++; bs.H++; bs.HR++; bs.R++; }
+      else if(t==='HR'){ bs.AB++; bs.H++; bs.HR++; bs.R++; bs.RBI++; }
       else if(t==='BB'){ bs.BB++; }
+      else if(t==='E'){ bs.AB++; }
+      else if(t==='FC'){ bs.AB++; }
+      else if(t==='SF'){ /* 犧牲打不算打數 */ }
       else if(t==='OUT'){ bs.AB++; }
+      else if(t==='RBI'){ bs.RBI++; }
     } else if(entry.store==='pitch'){
       const ps = statOf(pitch, entry.name); const t = entry.type;
       if(t==='OUT') ps.outs++;
@@ -922,34 +926,6 @@ function switchHalfIfNeeded(g){
 }
 
 // 簡化版跑壘規則:安打/全壘打時,場上跑者跟打者一起前進同樣的壘數
-function advanceRunners(g, n){
-  let runs = 0;
-  const old = {...g.bases};
-  g.bases = {1:false,2:false,3:false};
-  [1,2,3].forEach(b=>{
-    if(old[b]){
-      const dest = b + n;
-      if(dest >= 4) runs++; else g.bases[dest] = true;
-    }
-  });
-  if(n < 4) g.bases[n] = true; else runs++; // n=4 是全壘打,打者也回本壘
-  return runs;
-}
-// 保送/四壞:只有被逼進壘的跑者才會前進
-function forceWalk(g){
-  let runs = 0;
-  if(g.bases[1]){
-    if(g.bases[2]){
-      if(g.bases[3]) runs++;
-      g.bases[3] = true;
-    } else {
-      g.bases[2] = true;
-    }
-  }
-  g.bases[1] = true;
-  return runs;
-}
-
 function recordBat(ns, type){
   const g = liveGame[ns];
   if(!g){ toast('請先開始比賽'); return; }
@@ -958,26 +934,42 @@ function recordBat(ns, type){
   if(!order.length){ toast('請先在打序中選擇球員'); return; }
   const batter = order[g.batterPtr % order.length].player;
   const prevGame = {...g, innings: g.innings.map(r=>({...r})), bases: {...g.bases}};
-  if(type==='1B'||type==='2B'||type==='3B'){
-    const n = type==='1B'?1:type==='2B'?2:3;
-    const runs = advanceRunners(g, n);
-    if(runs){ g.us += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + runs; }
-  }
+  if(type==='1B'){ g.bases[1] = true; }
+  else if(type==='2B'){ g.bases[2] = true; }
+  else if(type==='3B'){ g.bases[3] = true; }
   else if(type==='HR'){
-    const runs = advanceRunners(g, 4);
-    g.us += runs;
+    g.us++;
     ensureInningRow(g, g.inning-1);
-    g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + runs;
+    g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + 1;
   }
-  else if(type==='BB'){
-    const runs = forceWalk(g);
-    if(runs){ g.us += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + runs; }
-  }
+  else if(type==='BB'){ g.bases[1] = true; }
+  else if(type==='E'){ g.bases[1] = true; }
+  else if(type==='FC'){ g.bases[1] = true; g.outs++; }
+  else if(type==='SF'){ g.outs++; }
   else if(type==='OUT'){ g.outs++; }
   g.batterPtr++;
   switchHalfIfNeeded(g);
   g.log.push({store:'bat', name:batter, type, prevGame});
   render();
+  flushCloudSaveNow();
+}
+function recordRun(ns, creditName){
+  const g = liveGame[ns];
+  if(!g){ toast('請先開始比賽'); return; }
+  const prevGame = {...g, innings: g.innings.map(r=>({...r})), bases: {...g.bases}};
+  g.us++;
+  ensureInningRow(g, g.inning-1);
+  g.innings[g.inning-1].us = (g.innings[g.inning-1].us||0) + 1;
+  if(creditName){
+    g.log.push({store:'bat', name:creditName, type:'RBI', prevGame});
+  } else {
+    g.log.push({store:null, type:'RUN_NORBI', prevGame});
+  }
+  scorePanelOpen[ns] = false;
+  if(navigator.vibrate) navigator.vibrate(15);
+  render();
+  flushCloudSaveNow();
+  toast('已得分!');
 }
 function recordPitch(ns, type){
   const g = liveGame[ns];
@@ -988,14 +980,8 @@ function recordPitch(ns, type){
   const prevGame = {...g, innings: g.innings.map(r=>({...r})), bases: {...g.bases}};
   if(type==='OUT'){ g.outs++; }
   else if(type==='K'){ g.outs++; }
-  else if(type==='H'){
-    const runs = advanceRunners(g, 1);
-    if(runs){ g.them += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + runs; }
-  }
-  else if(type==='BB'){
-    const runs = forceWalk(g);
-    if(runs){ g.them += runs; ensureInningRow(g, g.inning-1); g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + runs; }
-  }
+  else if(type==='H'){ g.bases[1] = true; }
+  else if(type==='BB'){ g.bases[1] = true; }
   else if(type==='R'){
     g.them++;
     ensureInningRow(g, g.inning-1);
@@ -1004,6 +990,7 @@ function recordPitch(ns, type){
   switchHalfIfNeeded(g);
   g.log.push({store:'pitch', name:pitcher, type, prevGame});
   render();
+  flushCloudSaveNow();
 }
 function recordOppRun(ns){
   const g = liveGame[ns];
@@ -1014,6 +1001,7 @@ function recordOppRun(ns){
   g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + 1;
   g.log.push({store:null, type:'OPPRUN', prevGame});
   render();
+  flushCloudSaveNow();
 }
 function undoLast(ns){
   const g = liveGame[ns];
@@ -1021,6 +1009,7 @@ function undoLast(ns){
   const last = g.log.pop();
   Object.assign(g, last.prevGame);
   render();
+  flushCloudSaveNow();
 }
 function updateStandingsFromResult(us, them){
   const me = standings.find(r=>r.me);
@@ -1050,8 +1039,13 @@ function endGame(ns){
     }
   }
   const box = computeGameBoxScore(g);
-  const sched = (g.scheduleIdx!=null) ? schedule[g.scheduleIdx] : null;
-  const gameType = sched ? sched.type : (ns==='cup'?'盃賽':'聯賽');
+  const gameTypeFallback = ns==='cup'?'盃賽':'聯賽';
+  let sched = (g.scheduleIdx!=null) ? schedule[g.scheduleIdx] : null;
+  if(!sched){
+    // 沒有從賽程下拉選單選,是自己打字輸入對手 → 找找看有沒有一場同對手、同類型、還沒打過的賽程,自動幫忙連結,避免「下一場比賽」卡住不會跳
+    sched = schedule.find(s => !s.result && s.opp === opp && s.type === gameTypeFallback) || null;
+  }
+  const gameType = sched ? sched.type : gameTypeFallback;
   const finalOrder = orderArrOf(ns);
   const lineup = finalOrder.filter(r=>r.player).map(r=>r.player);
   const substitutions = [];
@@ -1099,6 +1093,7 @@ let preseasonStreak = { type: 'W', count: 6 }; // 同上,起始連勝/連敗/連
 let lineupExpanded = { lg:true, cup:true };
 let lineupEditMode = { lg:false, cup:false };
 let subPanelOpen = { lg:false, cup:false };
+let scorePanelOpen = { lg:false, cup:false };
 let planningScheduleIdx = null;
 let gameLogExpanded = false;
 let selectedCupStage = null;
@@ -1798,8 +1793,8 @@ function renderBoxBatting(bat, lineup){
   }
   return `
     <table class="linescore">
-      <tr><th style="text-align:left;">打者</th><th>打數</th><th>安打</th><th>全壘打</th><th>保送</th><th>單場打擊率</th></tr>
-      ${names.map(n=>{const s=bat[n]; const avg = s.AB ? (s.H/s.AB).toFixed(3).replace(/^0/,'') : '.000'; return `<tr><td style="text-align:left;">${n}</td><td>${s.AB}</td><td>${s.H}</td><td>${s.HR}</td><td>${s.BB}</td><td>${avg}</td></tr>`;}).join('')}
+      <tr><th style="text-align:left;">打者</th><th>打數</th><th>安打</th><th>全壘打</th><th>打點</th><th>單場打擊率</th></tr>
+      ${names.map(n=>{const s=bat[n]; const avg = s.AB ? (s.H/s.AB).toFixed(3).replace(/^0/,'') : '.000'; return `<tr><td style="text-align:left;">${n}</td><td>${s.AB}</td><td>${s.H}</td><td>${s.HR}</td><td>${s.RBI||0}</td><td>${avg}</td></tr>`;}).join('')}
     </table>
   `;
 }
@@ -1909,6 +1904,26 @@ function viewGameDetail(){
     </div>
   </section>
   ` : ''}
+  ${(()=>{
+    const linked = schedule.find(s=>s.historyId===rec.id);
+    if(linked || !isAdmin()) return '';
+    const candidates = schedule.filter(s=>!s.result && s.type===rec.type);
+    return `
+    <section>
+      <div class="section-title">🔗 連結賽程</div>
+      <div class="card">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6;">這場紀錄沒有連到賽程裡的任何一場(可能當時是自己打字輸入對手),所以「下一場比賽」不會跳過它。選一場對應的賽程連起來,或忽略也沒關係,不影響數據統計。</div>
+        ${candidates.length ? `
+          <select id="linkSchedSel">
+            <option value="">— 選擇要連結的賽程 —</option>
+            ${candidates.map(s=>{ const i = schedule.indexOf(s); return `<option value="${i}">${s.date||'日期未定'}${s.time?' '+s.time:''} vs ${s.opp}</option>`; }).join('')}
+          </select>
+          <button class="btn-primary" style="margin-top:8px;" data-action="linkGameToSchedule" data-gid="${rec.id}">連結</button>
+        ` : `<div style="font-size:11.5px;color:var(--muted);">目前賽程裡沒有還沒打過、類型相同的比賽可以連。</div>`}
+      </div>
+    </section>
+    `;
+  })()}
   <section>
     <div class="section-title">🏏 打擊紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxBatting(rec.box.bat, rec.lineup)}</div>
@@ -2074,8 +2089,26 @@ function viewRecord(){
         <button class="btn-primary" style="margin:0;" data-rec="3B" data-ns="${ns}">三壘安打</button>
         <button class="btn-primary" style="margin:0;" data-rec="HR" data-ns="${ns}">全壘打</button>
         <button class="btn-outline" style="margin:0;" data-rec="BB" data-ns="${ns}">保送</button>
-        <button class="btn-outline" style="margin:0;" data-rec="OUT" data-ns="${ns}">出局</button>
+        <button class="btn-outline" style="margin:0;" data-rec="E" data-ns="${ns}">失誤上壘</button>
+        <button class="btn-outline" style="margin:0;" data-rec="FC" data-ns="${ns}">野手選擇</button>
+        <button class="btn-outline" style="margin:0;" data-rec="SF" data-ns="${ns}">高飛犧牲打</button>
+        <button class="btn-outline" style="margin:0;grid-column:span 2;" data-rec="OUT" data-ns="${ns}">出局</button>
       </div>
+      <button class="btn-primary" style="margin-top:8px;background:linear-gradient(135deg,#16A34A,#0F7A38);" data-action="toggleScorePanel" data-ns="${ns}">⚾ 得分</button>
+      ${(g && scorePanelOpen[ns]) ? (()=>{
+        const arr = orderArrOf(ns).filter(r=>r.player).map(r=>r.player);
+        return `
+        <div class="sub-panel">
+          <div style="font-size:11.5px;font-weight:700;margin-bottom:8px;">這分算誰的打點?</div>
+          <select id="rbiPlayerSel">
+            <option value="">— 選擇打點球員 —</option>
+            ${arr.map(n=>`<option value="${n}">${n}</option>`).join('')}
+            <option value="__error__">對方失誤得分(無打點)</option>
+          </select>
+          <button class="btn-primary" style="margin-top:8px;" data-action="confirmScore" data-ns="${ns}">確認得分</button>
+        </div>`;
+      })() : ''}
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">打者按鈕只影響打者自己上壘或出局,不會自動幫壘上其他跑者推進——壘包狀態請自己點上面的壘包圖調整。有人跑回本壘得分時,按「得分」記分並選這分算誰打點。</div>
       ${!g?`<div style="font-size:11px;color:var(--muted);margin-top:8px;">先在上面選好比賽、先攻後攻,按「開始比賽」才能記錄。</div>`:''}
     </div>
   </section>
@@ -2098,6 +2131,7 @@ function viewRecord(){
         <button class="btn-primary" style="margin:0;grid-column:span 2;" data-pitch="W" data-ns="${ns}">勝投 +1</button>
       </div>
       <div style="font-size:12.5px;color:var(--muted);margin-top:10px;">IP ${ps?ipOf(liveBox.pitch,pitcher):'0.0'} | H ${ps?ps.H:0} | BB ${ps?ps.BB:0} | K ${ps?ps.K:0} | R ${ps?ps.R:0} | ER ${ps?ps.ER:0} | W ${ps?ps.W:0}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6;">「被安打」「保送」只會讓對方打者自己上壘,不會自動推進壘上其他跑者,壘包狀態一樣自己點上面調整;對方跑回本壘要記得按「失分」。</div>
       <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6;">「勝投+1」是手動加的,如果整場都沒按,結束比賽時只要南機場贏球,系統會自動把勝投算給當下場上的投手;想指定給特定投手,就在他還在場上時手動按一次。</div>
     </div>
   </section>
@@ -2348,6 +2382,7 @@ function bindDynamicHandlers(){
       g.bases[b] = !g.bases[b];
       if(navigator.vibrate) navigator.vibrate(12);
       render();
+      flushCloudSaveNow();
     });
   });
   const startGameSelEl = document.getElementById('startGameSel');
@@ -2388,7 +2423,17 @@ function bindDynamicHandlers(){
         subPanelOpen[ns] = false;
         if(navigator.vibrate) navigator.vibrate(15);
         render();
+        flushCloudSaveNow();
         toast('已換人');
+        return;
+      }
+      if(act==='toggleScorePanel'){ scorePanelOpen[el.dataset.ns] = !scorePanelOpen[el.dataset.ns]; render(); return; }
+      if(act==='confirmScore'){
+        const ns = el.dataset.ns;
+        const sel = document.getElementById('rbiPlayerSel');
+        if(!sel || !sel.value){ toast('請選這分算誰的打點,或選「對方失誤得分」'); return; }
+        const creditName = sel.value === '__error__' ? null : sel.value;
+        recordRun(ns, creditName);
         return;
       }
       if(act==='selectCupStage'){ selectedCupStage = el.dataset.stage || null; render(); return; }
@@ -2543,6 +2588,23 @@ function bindDynamicHandlers(){
         return;
       }
       if(act==='refreshMembers'){ refreshMembers(); return; }
+      if(act==='linkGameToSchedule'){
+        if(!requireAdmin())return;
+        const gid = el.dataset.gid;
+        const sel = document.getElementById('linkSchedSel');
+        if(!sel || sel.value===''){ toast('請選一場賽程'); return; }
+        const rec = gameHistory.find(r=>r.id===gid);
+        const sched = schedule[+sel.value];
+        if(!rec || !sched) return;
+        sched.result = `${rec.us}:${rec.them}`;
+        sched.historyId = rec.id;
+        if(!rec.date) rec.date = sched.date;
+        if(!rec.time) rec.time = sched.time;
+        render();
+        flushCloudSaveNow();
+        toast('已連結,「下一場比賽」會正確跳過這場了');
+        return;
+      }
       if(act==='deleteGameRecord'){
         if(!requireAdmin())return;
         if(!confirm('確定要刪除這場比賽紀錄嗎?打擊/投手數據會一起消失,沒辦法復原。')) return;
