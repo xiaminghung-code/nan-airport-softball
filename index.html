@@ -246,6 +246,9 @@
   .out-dots{display:inline-flex;gap:3px;vertical-align:middle;}
   .out-dot{width:9px;height:9px;border-radius:50%;background:var(--line);display:inline-block;}
   .out-dot.on{background:var(--bad);}
+  .count-adjust{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin:8px 0 4px;}
+  .count-adjust button{border:1px solid var(--line);background:var(--card);color:var(--header2);font-size:11px;font-weight:700;padding:7px 2px;border-radius:8px;font-family:'Noto Sans TC',sans-serif;}
+  .count-adjust button:active{transform:scale(.94);background:var(--accent-soft);}
   .bases-mini{position:relative;width:64px;height:64px;margin:6px auto 4px;}
   .bases-mini .b-dot{position:absolute;width:20px;height:20px;border:2px solid var(--header2);background:#fff;transform:rotate(45deg);cursor:pointer;transition:transform .1s;}
   .bases-mini .b-dot:active{transform:rotate(45deg) scale(.85);}
@@ -853,6 +856,7 @@ function newLiveState(opp, battingFirst, scheduleIdx){
     half: battingFirst,      // 目前是誰在打擊
     inning: 1,
     outs: 0,
+    balls: 0, strikes: 0,    // 好壞球數,純顯示用,不會自動觸發保送/三振
     batterPtr: 0,
     us: 0, them: 0,
     bases: {1:false,2:false,3:false}, // 目前打擊方的壘上跑者
@@ -932,6 +936,15 @@ function switchHalfIfNeeded(g){
 }
 
 // 簡化版跑壘規則:安打/全壘打時,場上跑者跟打者一起前進同樣的壘數
+function adjustCount(ns, kind, delta){
+  const g = liveGame[ns];
+  if(!g) return;
+  if(kind==='ball') g.balls = Math.max(0, Math.min(3, g.balls + delta));
+  else g.strikes = Math.max(0, Math.min(2, g.strikes + delta));
+  if(navigator.vibrate) navigator.vibrate(8);
+  render();
+  flushCloudSaveNow();
+}
 function recordBat(ns, type){
   const g = liveGame[ns];
   if(!g){ toast('請先開始比賽'); return; }
@@ -955,6 +968,7 @@ function recordBat(ns, type){
   else if(type==='OUT'){ g.outs++; }
   g.batterPtr++;
   switchHalfIfNeeded(g);
+  g.balls = 0; g.strikes = 0;
   g.log.push({store:'bat', name:batter, type, prevGame});
   render();
   flushCloudSaveNow();
@@ -993,10 +1007,189 @@ function recordPitch(ns, type){
     ensureInningRow(g, g.inning-1);
     g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + 1;
   }
+  if(type==='OUT'||type==='K'||type==='H'||type==='BB'){ g.balls = 0; g.strikes = 0; }
   switchHalfIfNeeded(g);
   g.log.push({store:'pitch', name:pitcher, type, prevGame});
   render();
   flushCloudSaveNow();
+}
+let broadcastState = { ns:null, mounted:false, camStream:null, micStream:null, drawLoopId:null, mediaRecorder:null, recordedChunks:[], isRecording:false };
+
+function roundRectPath(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function drawMiniBasesOnCanvas(ctx, cx, cy, size, bases){
+  const s = size*0.5;
+  const pts = { 2:[cx, cy-s], 1:[cx+s, cy], 3:[cx-s, cy] };
+  Object.keys(pts).forEach(b=>{
+    const [x,y] = pts[b];
+    ctx.save();
+    ctx.translate(x,y); ctx.rotate(Math.PI/4);
+    ctx.fillStyle = bases[b] ? '#F2801E' : 'rgba(255,255,255,0.28)';
+    ctx.fillRect(-size*0.18, -size*0.18, size*0.36, size*0.36);
+    ctx.restore();
+  });
+}
+function fitText(ctx, text, maxWidth){
+  if(ctx.measureText(text).width <= maxWidth) return text;
+  let t = text;
+  while(t.length>1 && ctx.measureText(t+'…').width > maxWidth) t = t.slice(0,-1);
+  return t+'…';
+}
+function drawScorebug(ctx, W, H, ns){
+  const g = liveGame[ns];
+  if(!g) return;
+  const opp = g.opp || '對手';
+  const order = orderArrOf(ns).filter(r=>r.player);
+  const batter = order.length ? order[g.batterPtr % order.length].player : '';
+  const barH = Math.max(96, Math.round(H*0.24));
+  const barY = H - barH - Math.round(H*0.035);
+  const barX = Math.round(W*0.035);
+  const barW = W - barX*2;
+  const pad = Math.round(barW*0.035);
+  ctx.save();
+  ctx.globalAlpha = 0.88;
+  ctx.fillStyle = '#0A1729';
+  roundRectPath(ctx, barX, barY, barW, barH, Math.round(barH*0.1));
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.textBaseline = 'middle';
+
+  // Row 1 (上排): 隊名 + 比分
+  const row1Y = barY + barH*0.22;
+  const scoreFontSize = Math.round(barH*0.19);
+  ctx.font = `900 ${scoreFontSize}px 'Noto Sans TC', sans-serif`;
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'left';
+  ctx.fillText(fitText(ctx, `南機場 ${g.us}`, barW*0.42), barX+pad, row1Y);
+  ctx.textAlign = 'right';
+  ctx.fillText(fitText(ctx, `${g.them} ${opp}`, barW*0.42), barX+barW-pad, row1Y);
+
+  // Row 2 (中排): 局數 + 好壞球
+  const row2Y = barY + barH*0.5;
+  const midFont = Math.round(barH*0.14);
+  ctx.font = `700 ${midFont}px 'Noto Sans TC', sans-serif`;
+  ctx.fillStyle = '#F2A93B';
+  ctx.textAlign = 'center';
+  ctx.fillText(`第${g.inning}局${g.half==='us'?'上':'下'} · ${g.half==='us'?'我隊進攻':'我隊防守'} · ${g.balls}壞${g.strikes}好`, barX+barW/2, row2Y);
+
+  // Row 3 (下排): 出局 / 壘包 / 打者
+  const row3Y = barY + barH*0.8;
+  const smallFont = Math.round(barH*0.13);
+  ctx.font = `700 ${smallFont}px 'Noto Sans TC', sans-serif`;
+  ctx.fillStyle = '#CBD5E1';
+  ctx.textAlign = 'left';
+  ctx.fillText(`出局 ${g.outs}`, barX+pad, row3Y);
+  ctx.textAlign = 'right';
+  if(batter) ctx.fillText(fitText(ctx, `打者 ${batter}`, barW*0.4), barX+barW-pad, row3Y);
+  drawMiniBasesOnCanvas(ctx, barX+barW/2, row3Y, smallFont*1.5, g.bases);
+  ctx.restore();
+}
+function viewBroadcast(){
+  return `
+  <section>
+    <a data-action="closeBroadcast" style="font-size:12px;color:var(--header2);font-weight:700;">‹ 返回記錄比賽</a>
+    <div class="card" style="margin-top:10px;padding:10px;">
+      <video id="camVideo" autoplay playsinline muted style="display:none;"></video>
+      <canvas id="camCanvas" style="width:100%;border-radius:12px;background:#000;display:block;"></canvas>
+      <div id="camStatusMsg" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center;">正在啟動相機…</div>
+      <button id="broadcastRecBtn" class="btn-primary" style="margin-top:10px;background:linear-gradient(135deg,#DC2626,#B91C1C);" disabled>● 開始錄影</button>
+      <div id="broadcastDownloadWrap"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;">畫面會即時疊上比分、局數、出局、好壞球、壘包跟目前打者,錄好的影片會直接包含這些字卡,可以下載分享。第一次用手機會問相機/麥克風權限,請允許;離開這頁會自動關閉相機。</div>
+    </div>
+  </section>
+  `;
+}
+async function initBroadcastUI(ns){
+  broadcastState.ns = ns;
+  broadcastState.mounted = true;
+  const statusMsg = document.getElementById('camStatusMsg');
+  const video = document.getElementById('camVideo');
+  const canvas = document.getElementById('camCanvas');
+  const recBtn = document.getElementById('broadcastRecBtn');
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    if(statusMsg) statusMsg.textContent = '這個瀏覽器不支援相機功能';
+    return;
+  }
+  try{
+    broadcastState.camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }, audio:false });
+  } catch(e){
+    if(statusMsg) statusMsg.textContent = '無法開啟相機:'+(e.message||e.name)+'(請檢查瀏覽器/系統的相機權限設定)';
+    return;
+  }
+  try{
+    broadcastState.micStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+  } catch(e){ broadcastState.micStream = null; }
+  if(!video || !canvas || !broadcastState.mounted) return;
+  video.srcObject = broadcastState.camStream;
+  try{ await video.play(); } catch(e){}
+  await new Promise(resolve=>{ if(video.readyState>=2) resolve(); else video.onloadedmetadata = resolve; });
+  if(!broadcastState.mounted) return;
+  canvas.width = video.videoWidth || 1280;
+  canvas.height = video.videoHeight || 720;
+  const ctx = canvas.getContext('2d');
+  function draw(){
+    if(!broadcastState.mounted) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    drawScorebug(ctx, canvas.width, canvas.height, broadcastState.ns);
+    broadcastState.drawLoopId = requestAnimationFrame(draw);
+  }
+  draw();
+  if(statusMsg) statusMsg.textContent = broadcastState.micStream ? '相機、麥克風已就緒,可以開始錄影' : '相機已就緒(沒有麥克風權限,只會錄畫面沒有聲音)';
+  if(recBtn){ recBtn.disabled = false; recBtn.addEventListener('click', toggleBroadcastRecording); }
+}
+function toggleBroadcastRecording(){
+  if(broadcastState.isRecording) stopBroadcastRecording(); else startBroadcastRecording();
+}
+function startBroadcastRecording(){
+  const canvas = document.getElementById('camCanvas');
+  if(!canvas || !canvas.captureStream){ toast('這台裝置不支援錄影功能'); return; }
+  const canvasStream = canvas.captureStream(30);
+  const tracks = [...canvasStream.getVideoTracks()];
+  if(broadcastState.micStream) tracks.push(...broadcastState.micStream.getAudioTracks());
+  const combined = new MediaStream(tracks);
+  const mimeCandidates = ['video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+  let mime = '';
+  if(window.MediaRecorder && MediaRecorder.isTypeSupported){
+    for(const m of mimeCandidates){ if(MediaRecorder.isTypeSupported(m)){ mime = m; break; } }
+  }
+  try{
+    broadcastState.mediaRecorder = mime ? new MediaRecorder(combined, {mimeType:mime}) : new MediaRecorder(combined);
+  } catch(e){ toast('無法開始錄影:'+e.message); return; }
+  broadcastState.recordedChunks = [];
+  broadcastState.mediaRecorder.ondataavailable = e=>{ if(e.data && e.data.size>0) broadcastState.recordedChunks.push(e.data); };
+  broadcastState.mediaRecorder.onstop = ()=>{
+    const blob = new Blob(broadcastState.recordedChunks, {type: broadcastState.mediaRecorder.mimeType || 'video/webm'});
+    const url = URL.createObjectURL(blob);
+    const ext = (broadcastState.mediaRecorder.mimeType||'').includes('mp4') ? 'mp4' : 'webm';
+    const wrap = document.getElementById('broadcastDownloadWrap');
+    if(wrap){ wrap.innerHTML = `<a class="btn-outline" style="display:block;text-align:center;text-decoration:none;margin-top:10px;" href="${url}" download="南機場壘球隊_${Date.now()}.${ext}">⬇️ 下載這段影片</a>`; }
+  };
+  broadcastState.mediaRecorder.start();
+  broadcastState.isRecording = true;
+  const btn = document.getElementById('broadcastRecBtn');
+  if(btn) btn.textContent = '■ 停止錄影';
+  if(navigator.vibrate) navigator.vibrate(20);
+}
+function stopBroadcastRecording(){
+  if(broadcastState.mediaRecorder && broadcastState.mediaRecorder.state!=='inactive') broadcastState.mediaRecorder.stop();
+  broadcastState.isRecording = false;
+  const btn = document.getElementById('broadcastRecBtn');
+  if(btn) btn.textContent = '● 開始錄影';
+}
+function closeBroadcastAndCleanup(){
+  broadcastState.mounted = false;
+  if(broadcastState.drawLoopId) cancelAnimationFrame(broadcastState.drawLoopId);
+  if(broadcastState.isRecording) stopBroadcastRecording();
+  if(broadcastState.camStream) broadcastState.camStream.getTracks().forEach(t=>t.stop());
+  if(broadcastState.micStream) broadcastState.micStream.getTracks().forEach(t=>t.stop());
+  broadcastState.camStream = null; broadcastState.micStream = null; broadcastState.drawLoopId = null;
 }
 function recordOppRun(ns){
   const g = liveGame[ns];
@@ -1159,6 +1352,7 @@ function render(opts){
   if(currentView==='record') app.innerHTML = viewRecord();
   if(currentView==='gameDetail') app.innerHTML = viewGameDetail();
   if(currentView==='lineupPlan') app.innerHTML = viewLineupPlan();
+  if(currentView==='broadcast'){ if(!broadcastState.mounted) app.innerHTML = viewBroadcast(); }
   if(currentView==='settings') app.innerHTML = viewSettings();
   renderStatBand();
   bindDynamicHandlers();
@@ -1966,7 +2160,7 @@ function renderMiniStatus(g){
   return `
     <div class="mini-status">
       <div class="ms-score">${g.us} : ${g.them}</div>
-      <div class="ms-meta">第${g.inning}局${g.half==='us'?'上':'下'} · ${g.half==='us'?'我隊進攻':'我隊防守'}<br>出局 <span class="out-dots">${outDots}</span> (${g.outs})</div>
+      <div class="ms-meta">第${g.inning}局${g.half==='us'?'上':'下'} · ${g.half==='us'?'我隊進攻':'我隊防守'}<br>出局 <span class="out-dots">${outDots}</span> (${g.outs}) · ${g.balls}壞${g.strikes}好</div>
     </div>
   `;
 }
@@ -2100,6 +2294,12 @@ function viewRecord(){
       })() : ''}
       ${g?renderMiniStatus(g):''}
       ${g?renderBasesIndicator(g, ns):''}
+      ${g?`<div class="count-adjust">
+        <button data-count="ball" data-delta="-1" data-ns="${ns}">壞球 −</button>
+        <button data-count="ball" data-delta="1" data-ns="${ns}">壞球 +</button>
+        <button data-count="strike" data-delta="-1" data-ns="${ns}">好球 −</button>
+        <button data-count="strike" data-delta="1" data-ns="${ns}">好球 +</button>
+      </div>`:''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <button class="btn-primary" style="margin:0;" data-rec="1B" data-ns="${ns}">一壘安打</button>
         <button class="btn-primary" style="margin:0;" data-rec="2B" data-ns="${ns}">二壘安打</button>
@@ -2135,6 +2335,12 @@ function viewRecord(){
     <div class="card ${g&&g.half==='us'?'panel-disabled':''}">
       ${g?renderMiniStatus(g):''}
       ${g?renderBasesIndicator(g, ns):''}
+      ${g?`<div class="count-adjust">
+        <button data-count="ball" data-delta="-1" data-ns="${ns}">壞球 −</button>
+        <button data-count="ball" data-delta="1" data-ns="${ns}">壞球 +</button>
+        <button data-count="strike" data-delta="-1" data-ns="${ns}">好球 −</button>
+        <button data-count="strike" data-delta="1" data-ns="${ns}">好球 +</button>
+      </div>`:''}
       <select id="pitcherSel" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:14px;font-family:'Noto Sans TC',sans-serif;margin-bottom:10px;">
         <option value="">— 選擇投手 —</option>
         ${pool.map(n=>`<option value="${n}" ${pitcher===n?'selected':''}>${n}</option>`).join('')}
@@ -2154,11 +2360,16 @@ function viewRecord(){
     </div>
   </section>
 
-  <div style="display:flex;gap:8px;margin-bottom:20px;">
+  <div style="display:flex;gap:8px;margin-bottom:12px;">
     <button class="btn-outline" style="flex:1;" data-action="undo" data-ns="${ns}">Undo</button>
     <button class="btn-outline" style="flex:1;" data-action="oppRun" data-ns="${ns}">對手 +1</button>
     <button class="btn-primary" style="flex:1;margin-top:0;" data-action="endGame" data-ns="${ns}">結束</button>
   </div>
+  ${g ? `
+  <div style="margin-bottom:20px;">
+    <button class="btn-outline" style="width:100%;" data-action="openBroadcast" data-ns="${ns}">📹 轉播錄影(相機 + 即時字卡)</button>
+  </div>
+  ` : ''}
   `;
 }
 
@@ -2392,6 +2603,9 @@ function bindDynamicHandlers(){
   app.querySelectorAll('[data-batfirst]').forEach(el=>{
     el.addEventListener('click', ()=>{ pendingBatFirst[el.dataset.ns] = el.dataset.batfirst; render(); });
   });
+  app.querySelectorAll('[data-count]').forEach(el=>{
+    el.addEventListener('click', ()=>{ adjustCount(el.dataset.ns, el.dataset.count, +el.dataset.delta); });
+  });
   app.querySelectorAll('[data-toggle-base]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const g = liveGame[el.dataset.ns];
@@ -2446,6 +2660,19 @@ function bindDynamicHandlers(){
         return;
       }
       if(act==='toggleScorePanel'){ scorePanelOpen[el.dataset.ns] = !scorePanelOpen[el.dataset.ns]; render(); return; }
+      if(act==='openBroadcast'){
+        const ns = el.dataset.ns;
+        currentView = 'broadcast';
+        setActiveNav(); render();
+        initBroadcastUI(ns);
+        return;
+      }
+      if(act==='closeBroadcast'){
+        closeBroadcastAndCleanup();
+        currentView = 'record';
+        setActiveNav(); render();
+        return;
+      }
       if(act==='confirmScore'){
         const ns = el.dataset.ns;
         const sel = document.getElementById('rbiPlayerSel');
@@ -2653,6 +2880,7 @@ function setActiveNav(){
     b.classList.toggle('active',
       b.dataset.view===currentView ||
       (currentView==='record' && b.dataset.view==='home') ||
+      (currentView==='broadcast' && b.dataset.view==='home') ||
       (currentView==='gameDetail' && b.dataset.view==='schedule') ||
       (currentView==='lineupPlan' && b.dataset.view==='schedule'));
   });
@@ -2661,6 +2889,7 @@ function setActiveNav(){
 document.getElementById('bottomNav').addEventListener('click', (e)=>{
   const btn = e.target.closest('button');
   if(!btn) return;
+  if(currentView==='broadcast') closeBroadcastAndCleanup();
   currentView = btn.dataset.view;
   document.querySelectorAll('#bottomNav button').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
