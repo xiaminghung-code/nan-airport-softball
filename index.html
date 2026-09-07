@@ -292,6 +292,19 @@
   .compact-row .cname{flex:1;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
   .compact-row .cpos{color:var(--muted);font-size:10px;flex-shrink:0;}
   .sub-panel{background:var(--chip);border-radius:10px;padding:10px;margin-top:10px;}
+  .broadcast-stage{position:relative;background:#000;border-radius:12px;overflow:hidden;}
+  .broadcast-stage canvas{width:100%;display:block;}
+  .bc-topbar{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;z-index:8;}
+  .bc-topbar button{background:rgba(0,0,0,.6);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:800;font-family:'Noto Sans TC',sans-serif;}
+  #broadcastPauseBtn{background:rgba(217,119,6,.85) !important;}
+  .bc-rail{position:absolute;top:52px;bottom:0;display:none;flex-direction:column;justify-content:center;gap:8px;padding:10px;z-index:5;max-width:30%;overflow-y:auto;}
+  .bc-rail-left{left:0;}
+  .bc-rail-right{right:0;}
+  .bc-rail button{background:rgba(10,20,35,.78);color:#fff;border:1px solid rgba(255,255,255,.28);border-radius:10px;padding:10px 6px;font-size:12px;font-weight:800;font-family:'Noto Sans TC',sans-serif;line-height:1.3;}
+  .bc-rail button:active{background:rgba(242,128,30,.85);}
+  .broadcast-stage.is-fullscreen{width:100vw;height:100vh;border-radius:0;position:fixed;top:0;left:0;z-index:999;}
+  .broadcast-stage.is-fullscreen canvas{width:100%;height:100%;object-fit:contain;}
+  .broadcast-stage.is-fullscreen .bc-rail{display:flex;}
   .sub-panel select{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;font-family:'Noto Sans TC',sans-serif;background:var(--card);color:var(--ink);}
 
   .order-row{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--line);border-radius:8px;transition:background .2s;}
@@ -1047,67 +1060,180 @@ function fitText(ctx, text, maxWidth){
   while(t.length>1 && ctx.measureText(t+'…').width > maxWidth) t = t.slice(0,-1);
   return t+'…';
 }
+function drawCircleGroup(ctx, startX, midY, rowHpx, label, count, max, color){
+  const letterFont = Math.round(rowHpx*0.44);
+  ctx.font = `900 ${letterFont}px 'Noto Sans TC', sans-serif`;
+  ctx.fillStyle = '#E5EAF0';
+  ctx.textAlign = 'left';
+  ctx.fillText(label, startX, midY);
+  let x = startX + ctx.measureText(label).width + rowHpx*0.14;
+  const r = rowHpx*0.15;
+  for(let i=0;i<max;i++){
+    ctx.beginPath();
+    ctx.arc(x+r, midY, r, 0, Math.PI*2);
+    if(i<count){ ctx.fillStyle = color; ctx.fill(); }
+    else { ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = Math.max(1, r*0.2); ctx.stroke(); }
+    x += r*2 + rowHpx*0.12;
+  }
+  return x + rowHpx*0.3;
+}
 function drawScorebug(ctx, W, H, ns){
   const g = liveGame[ns];
   if(!g) return;
   const opp = g.opp || '對手';
-  const order = orderArrOf(ns).filter(r=>r.player);
-  const batter = order.length ? order[g.batterPtr % order.length].player : '';
-  const barH = Math.max(64, Math.round(H*0.15));
-  const barY = H - barH - Math.round(H*0.035);
-  const barX = Math.round(W*0.035);
-  const barW = W - barX*2;
-  const pad = Math.round(barW*0.035);
+  const boxW = Math.round(W*0.4);
+  const rowH = Math.round(H*0.05);
+  const boxX = Math.round(W*0.025);
+  const boxY = Math.round(H*0.03);
+  const diamondW = Math.round(rowH*1.8);
+  const teamRowsW = boxW - diamondW;
+  const bottomH = Math.round(rowH*0.9);
+  const pad = Math.round(teamRowsW*0.06);
+
   ctx.save();
-  ctx.globalAlpha = 0.88;
-  ctx.fillStyle = '#0A1729';
-  roundRectPath(ctx, barX, barY, barW, barH, Math.round(barH*0.1));
-  ctx.fill();
-  ctx.globalAlpha = 1;
   ctx.textBaseline = 'middle';
 
-  // Row 1 (上排): 隊名 + 比分
-  const row1Y = barY + barH*0.22;
-  const scoreFontSize = Math.round(barH*0.19);
-  ctx.font = `900 ${scoreFontSize}px 'Noto Sans TC', sans-serif`;
+  ctx.fillStyle = 'rgba(18,39,68,0.92)';
+  ctx.fillRect(boxX, boxY, teamRowsW, rowH);
+  ctx.fillStyle = 'rgba(217,114,15,0.92)';
+  ctx.fillRect(boxX, boxY+rowH, teamRowsW, rowH);
+  ctx.fillStyle = 'rgba(10,23,41,0.92)';
+  ctx.fillRect(boxX+teamRowsW, boxY, diamondW, rowH*2);
+  ctx.fillStyle = 'rgba(6,14,26,0.92)';
+  ctx.fillRect(boxX, boxY+rowH*2, boxW, bottomH);
+
+  const nameFont = Math.round(rowH*0.4);
+  const scoreFont = Math.round(rowH*0.52);
+  ctx.font = `700 ${nameFont}px 'Noto Sans TC', sans-serif`;
   ctx.fillStyle = '#fff';
   ctx.textAlign = 'left';
-  ctx.fillText(fitText(ctx, `南機場 ${g.us}`, barW*0.42), barX+pad, row1Y);
+  ctx.fillText(fitText(ctx, '南機場', teamRowsW*0.6), boxX+pad, boxY+rowH*0.5);
+  ctx.fillText(fitText(ctx, opp, teamRowsW*0.6), boxX+pad, boxY+rowH*1.5);
+  ctx.font = `900 ${scoreFont}px 'Noto Sans TC', sans-serif`;
   ctx.textAlign = 'right';
-  ctx.fillText(fitText(ctx, `${g.them} ${opp}`, barW*0.42), barX+barW-pad, row1Y);
+  ctx.fillText(String(g.us), boxX+teamRowsW-pad, boxY+rowH*0.5);
+  ctx.fillText(String(g.them), boxX+teamRowsW-pad, boxY+rowH*1.5);
 
-  // Row 2 (中排): 局數 + 好壞球
-  const row2Y = barY + barH*0.5;
-  const midFont = Math.round(barH*0.14);
-  ctx.font = `700 ${midFont}px 'Noto Sans TC', sans-serif`;
-  ctx.fillStyle = '#F2A93B';
-  ctx.textAlign = 'center';
-  ctx.fillText(`第${g.inning}局${g.half==='us'?'上':'下'} · ${g.half==='us'?'我隊進攻':'我隊防守'} · ${g.balls}壞${g.strikes}好`, barX+barW/2, row2Y);
+  drawMiniBasesOnCanvas(ctx, boxX+teamRowsW+diamondW/2, boxY+rowH, rowH*0.8, g.bases);
 
-  // Row 3 (下排): 出局 / 壘包 / 打者
-  const row3Y = barY + barH*0.8;
-  const smallFont = Math.round(barH*0.13);
-  ctx.font = `700 ${smallFont}px 'Noto Sans TC', sans-serif`;
-  ctx.fillStyle = '#CBD5E1';
+  const bY = boxY+rowH*2+bottomH/2;
+  const arrow = g.half==='us' ? '▲' : '▼';
+  const inningFont = Math.round(bottomH*0.48);
+  ctx.font = `900 ${inningFont}px 'Noto Sans TC', sans-serif`;
+  ctx.fillStyle = '#fff';
   ctx.textAlign = 'left';
-  ctx.fillText(`出局 ${g.outs}`, barX+pad, row3Y);
-  ctx.textAlign = 'right';
-  if(batter) ctx.fillText(fitText(ctx, `打者 ${batter}`, barW*0.4), barX+barW-pad, row3Y);
-  drawMiniBasesOnCanvas(ctx, barX+barW/2, row3Y, smallFont*1.5, g.bases);
+  const inningLabel = `${g.inning}${arrow}`;
+  ctx.fillText(inningLabel, boxX+pad*0.6, bY);
+  let cx = boxX+pad*0.6 + ctx.measureText(inningLabel).width + rowH*0.35;
+  cx = drawCircleGroup(ctx, cx, bY, bottomH, 'B', g.balls, 4, '#22C55E');
+  cx = drawCircleGroup(ctx, cx, bY, bottomH, 'S', g.strikes, 3, '#EAB308');
+  cx = drawCircleGroup(ctx, cx, bY, bottomH, 'O', g.outs, 3, '#EF4444');
   ctx.restore();
+}
+function renderBroadcastRails(ns){
+  const g = liveGame[ns];
+  if(!g) return { left:'', right:'' };
+  if(g.half==='us'){
+    return {
+      right: `
+        <button data-rec="1B" data-ns="${ns}">一安</button>
+        <button data-rec="2B" data-ns="${ns}">二安</button>
+        <button data-rec="3B" data-ns="${ns}">三安</button>
+        <button data-rec="HR" data-ns="${ns}">全壘打</button>
+        <button data-rec="OUT" data-ns="${ns}">出局</button>
+        <button data-action="toggleScorePanel" data-ns="${ns}" style="background:rgba(22,163,74,.85);">⚾ 得分</button>
+      `,
+      left: `
+        <button data-rec="BB" data-ns="${ns}">保送</button>
+        <button data-rec="E" data-ns="${ns}">失誤上壘</button>
+        <button data-rec="FC" data-ns="${ns}">野手選擇</button>
+        <button data-rec="SF" data-ns="${ns}">高飛犧牲</button>
+        <button data-action="undo" data-ns="${ns}">Undo</button>
+        <button data-action="toggleFullscreen">✕ 退出全螢幕</button>
+      `
+    };
+  }
+  return {
+    right: `
+      <button data-pitch="OUT" data-ns="${ns}">投球出局</button>
+      <button data-pitch="K" data-ns="${ns}">三振</button>
+      <button data-pitch="H" data-ns="${ns}">被安打</button>
+      <button data-pitch="BB" data-ns="${ns}">保送</button>
+      <button data-pitch="R" data-ns="${ns}">失分</button>
+    `,
+    left: `
+      <button data-pitch="ER" data-ns="${ns}">自責分</button>
+      <button data-count="ball" data-delta="1" data-ns="${ns}">壞球 +</button>
+      <button data-count="strike" data-delta="1" data-ns="${ns}">好球 +</button>
+      <button data-action="undo" data-ns="${ns}">Undo</button>
+      <button data-action="toggleFullscreen">✕ 退出全螢幕</button>
+    `
+  };
+}
+function toggleBroadcastFullscreen(){
+  const stage = document.getElementById('broadcastStage');
+  if(!stage) return;
+  const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+  if(!isFs){
+    const req = stage.requestFullscreen || stage.webkitRequestFullscreen;
+    if(req){ Promise.resolve(req.call(stage)).catch(()=>toast('這台裝置不支援全螢幕')); }
+    else toast('這台裝置不支援全螢幕');
+  } else {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if(exit) exit.call(document);
+  }
+}
+function onBroadcastFullscreenChange(){
+  const stage = document.getElementById('broadcastStage');
+  if(!stage) return;
+  const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  stage.classList.toggle('is-fullscreen', isFs);
+  const fsBtn = document.getElementById('fsBtn');
+  if(fsBtn) fsBtn.textContent = isFs ? '⛶ 退出全螢幕' : '⛶ 全螢幕';
+  if(isFs && screen.orientation && screen.orientation.lock){
+    screen.orientation.lock('landscape').catch(()=>{});
+  }
+}
+document.addEventListener('fullscreenchange', onBroadcastFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onBroadcastFullscreenChange);
+function toggleBroadcastPause(){
+  const mr = broadcastState.mediaRecorder;
+  if(!mr) return;
+  if(mr.state==='recording'){
+    mr.pause();
+    const btn = document.getElementById('broadcastPauseBtn');
+    if(btn) btn.textContent = '▶ 繼續';
+    toast('已暫停錄影');
+  } else if(mr.state==='paused'){
+    mr.resume();
+    const btn = document.getElementById('broadcastPauseBtn');
+    if(btn) btn.textContent = '⏸ 暫停';
+    toast('繼續錄影');
+  }
 }
 function viewBroadcast(){
   const ns = broadcastState.ns || recordNs;
+  const rails = renderBroadcastRails(ns);
   return `
   <section>
     <a data-action="closeBroadcast" style="font-size:12px;color:var(--header2);font-weight:700;">‹ 返回記錄比賽</a>
     <div class="card" style="margin-top:10px;padding:10px;">
-      <video id="camVideo" autoplay playsinline muted style="display:none;"></video>
-      <canvas id="camCanvas" style="width:100%;border-radius:12px;background:#000;display:block;"></canvas>
+      <div id="broadcastStage" class="broadcast-stage">
+        <video id="camVideo" autoplay playsinline muted style="display:none;"></video>
+        <canvas id="camCanvas"></canvas>
+        <div class="bc-topbar">
+          <button id="fsBtn" data-action="toggleFullscreen">⛶ 全螢幕</button>
+          <div style="display:flex;gap:6px;">
+            <button id="broadcastPauseBtn" data-action="togglePause" style="display:none;">⏸ 暫停</button>
+            <button id="broadcastRecBtn" disabled>● 開始錄影</button>
+          </div>
+        </div>
+        <div class="bc-rail bc-rail-left" id="bcRailLeft">${rails.left}</div>
+        <div class="bc-rail bc-rail-right" id="bcRailRight">${rails.right}</div>
+      </div>
       <div id="camStatusMsg" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center;">正在啟動相機…</div>
-      <button id="broadcastRecBtn" class="btn-primary" style="margin-top:10px;background:linear-gradient(135deg,#DC2626,#B91C1C);" disabled>● 開始錄影</button>
       <div id="broadcastDownloadWrap"></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;">畫面上的字卡會直接錄進影片裡。下面的按鈕邊錄邊記錄比賽用,離開這頁會自動關閉相機。</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;">字卡直接錄進影片裡。按「全螢幕」後,常用按鈕會浮在畫面左右兩側,錄影中可以暫停再繼續。離開這頁會自動關閉相機。</div>
     </div>
   </section>
   <section>
@@ -1145,6 +1271,10 @@ async function initBroadcastUI(ns){
   const ctx = canvas.getContext('2d');
   function draw(){
     if(!broadcastState.mounted) return;
+    if(video.videoWidth && (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight)){
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     drawScorebug(ctx, canvas.width, canvas.height, broadcastState.ns);
     broadcastState.drawLoopId = requestAnimationFrame(draw);
@@ -1184,6 +1314,8 @@ function startBroadcastRecording(){
   broadcastState.isRecording = true;
   const btn = document.getElementById('broadcastRecBtn');
   if(btn) btn.textContent = '■ 停止錄影';
+  const pauseBtn = document.getElementById('broadcastPauseBtn');
+  if(pauseBtn){ pauseBtn.style.display = 'inline-block'; pauseBtn.textContent = '⏸ 暫停'; }
   if(navigator.vibrate) navigator.vibrate(20);
 }
 function stopBroadcastRecording(){
@@ -1191,9 +1323,15 @@ function stopBroadcastRecording(){
   broadcastState.isRecording = false;
   const btn = document.getElementById('broadcastRecBtn');
   if(btn) btn.textContent = '● 開始錄影';
+  const pauseBtn = document.getElementById('broadcastPauseBtn');
+  if(pauseBtn) pauseBtn.style.display = 'none';
 }
 function closeBroadcastAndCleanup(){
   broadcastState.mounted = false;
+  if(document.fullscreenElement || document.webkitFullscreenElement){
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if(exit) exit.call(document);
+  }
   if(broadcastState.drawLoopId) cancelAnimationFrame(broadcastState.drawLoopId);
   if(broadcastState.isRecording) stopBroadcastRecording();
   if(broadcastState.camStream) broadcastState.camStream.getTracks().forEach(t=>t.stop());
@@ -1367,6 +1505,9 @@ function render(opts){
     } else {
       const ctrl = document.getElementById('broadcastControls');
       if(ctrl) ctrl.innerHTML = renderRecordControls(broadcastState.ns, {hideBroadcastButton:true});
+      const rails = renderBroadcastRails(broadcastState.ns);
+      const rl = document.getElementById('bcRailLeft'); if(rl) rl.innerHTML = rails.left;
+      const rr = document.getElementById('bcRailRight'); if(rr) rr.innerHTML = rails.right;
     }
   }
   if(currentView==='settings') app.innerHTML = viewSettings();
@@ -2715,6 +2856,8 @@ function bindDynamicHandlers(){
         setActiveNav(); render();
         return;
       }
+      if(act==='toggleFullscreen'){ toggleBroadcastFullscreen(); return; }
+      if(act==='togglePause'){ toggleBroadcastPause(); return; }
       if(act==='confirmScore'){
         const ns = el.dataset.ns;
         const sel = document.getElementById('rbiPlayerSel');
