@@ -1185,21 +1185,35 @@ function togglePseudoFullscreen(){
 function toggleBroadcastFullscreen(){
   const stage = document.getElementById('broadcastStage');
   if(!stage) return;
-  // 如果已經在用 CSS 版全螢幕,不管瀏覽器 API 支不支援,都用同一套邏輯關掉
   if(pseudoFullscreen){ togglePseudoFullscreen(); return; }
-  const nativeReq = stage.requestFullscreen || stage.webkitRequestFullscreen;
   const inNativeFs = document.fullscreenElement || document.webkitFullscreenElement;
   if(inNativeFs){
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
     if(exit) exit.call(document);
     return;
   }
-  if(nativeReq){
-    Promise.resolve(nativeReq.call(stage)).catch(()=>{ togglePseudoFullscreen(); });
-  } else {
-    // iOS Safari(包含加到主畫面的模式)本來就不支援標準全螢幕 API,直接用畫面模擬版
+  const nativeReq = stage.requestFullscreen || stage.webkitRequestFullscreen;
+  if(!nativeReq){
+    // iOS Safari(含加到主畫面模式)本來就沒有這個 API,直接用畫面模擬版
     togglePseudoFullscreen();
+    return;
   }
+  let settled = false;
+  try{
+    const result = nativeReq.call(stage);
+    if(result && typeof result.catch === 'function'){
+      result.then(()=>{ settled = true; }).catch(()=>{ settled = true; togglePseudoFullscreen(); });
+    }
+  } catch(e){
+    settled = true;
+    togglePseudoFullscreen();
+    return;
+  }
+  // 有些 iOS 版本呼叫了 API 卻靜靜地沒反應(不丟錯也不進全螢幕),0.35 秒後檢查沒真的進去就自動改用模擬版
+  setTimeout(()=>{
+    const nowFs = document.fullscreenElement || document.webkitFullscreenElement;
+    if(!nowFs && !pseudoFullscreen){ togglePseudoFullscreen(); }
+  }, 350);
 }
 function onBroadcastFullscreenChange(){
   const stage = document.getElementById('broadcastStage');
