@@ -1182,38 +1182,34 @@ function togglePseudoFullscreen(){
   if(nav) nav.style.display = pseudoFullscreen ? 'none' : '';
   if(navigator.vibrate) navigator.vibrate(10);
 }
-function toggleBroadcastFullscreen(){
+let bcOriginalParent = null, bcOriginalNextSibling = null;
+function togglePseudoFullscreen(){
   const stage = document.getElementById('broadcastStage');
   if(!stage) return;
-  if(pseudoFullscreen){ togglePseudoFullscreen(); return; }
-  const inNativeFs = document.fullscreenElement || document.webkitFullscreenElement;
-  if(inNativeFs){
-    const exit = document.exitFullscreen || document.webkitExitFullscreen;
-    if(exit) exit.call(document);
-    return;
-  }
-  const nativeReq = stage.requestFullscreen || stage.webkitRequestFullscreen;
-  if(!nativeReq){
-    // iOS Safari(含加到主畫面模式)本來就沒有這個 API,直接用畫面模擬版
-    togglePseudoFullscreen();
-    return;
-  }
-  let settled = false;
-  try{
-    const result = nativeReq.call(stage);
-    if(result && typeof result.catch === 'function'){
-      result.then(()=>{ settled = true; }).catch(()=>{ settled = true; togglePseudoFullscreen(); });
+  pseudoFullscreen = !pseudoFullscreen;
+  if(pseudoFullscreen){
+    bcOriginalParent = stage.parentNode;
+    bcOriginalNextSibling = stage.nextSibling;
+    document.body.appendChild(stage); // 直接搬到 body 下面,避開頁面裡任何父層樣式可能造成的定位問題
+    toast('已切換成全螢幕模式');
+  } else {
+    if(bcOriginalParent){
+      if(bcOriginalNextSibling && bcOriginalNextSibling.parentNode===bcOriginalParent) bcOriginalParent.insertBefore(stage, bcOriginalNextSibling);
+      else bcOriginalParent.appendChild(stage);
     }
-  } catch(e){
-    settled = true;
-    togglePseudoFullscreen();
-    return;
+    toast('已退出全螢幕');
   }
-  // 有些 iOS 版本呼叫了 API 卻靜靜地沒反應(不丟錯也不進全螢幕),0.35 秒後檢查沒真的進去就自動改用模擬版
-  setTimeout(()=>{
-    const nowFs = document.fullscreenElement || document.webkitFullscreenElement;
-    if(!nowFs && !pseudoFullscreen){ togglePseudoFullscreen(); }
-  }, 350);
+  stage.classList.toggle('is-fullscreen', pseudoFullscreen);
+  const fsBtn = document.getElementById('fsBtn');
+  if(fsBtn) fsBtn.textContent = pseudoFullscreen ? '⛶ 退出全螢幕' : '⛶ 全螢幕';
+  const nav = document.getElementById('bottomNav');
+  if(nav) nav.style.display = pseudoFullscreen ? 'none' : '';
+  if(navigator.vibrate) navigator.vibrate(10);
+}
+function toggleBroadcastFullscreen(){
+  // iOS Safari 對一般網頁元素的全螢幕 API 支援不可靠(有的版本乾脆沒有,有的呼叫了卻沒反應),
+  // 直接用 CSS 模擬版,不再嘗試瀏覽器原生全螢幕。
+  togglePseudoFullscreen();
 }
 function onBroadcastFullscreenChange(){
   const stage = document.getElementById('broadcastStage');
@@ -1372,6 +1368,10 @@ function closeBroadcastAndCleanup(){
     const nav = document.getElementById('bottomNav');
     if(nav) nav.style.display = '';
   }
+  // 如果 stage 被搬到 body 底下(全螢幕模擬模式),直接移除,避免離開頁面後留下孤兒節點
+  const stage = document.getElementById('broadcastStage');
+  if(stage && stage.parentNode === document.body){ stage.parentNode.removeChild(stage); }
+  bcOriginalParent = null; bcOriginalNextSibling = null;
   if(broadcastState.drawLoopId) cancelAnimationFrame(broadcastState.drawLoopId);
   if(broadcastState.isRecording) stopBroadcastRecording();
   if(broadcastState.camStream) broadcastState.camStream.getTracks().forEach(t=>t.stop());
@@ -2687,7 +2687,7 @@ function viewSettings(){
 
 /* ---------- 事件綁定 ---------- */
 function bindDynamicHandlers(){
-  app.querySelectorAll('[data-nav]').forEach(el=>{
+  document.querySelectorAll('[data-nav]').forEach(el=>{
     el.addEventListener('click', ()=>{
       currentView = el.dataset.nav;
       if(el.dataset.sub) statsSubtab = el.dataset.sub;
@@ -2696,10 +2696,10 @@ function bindDynamicHandlers(){
       if(currentView==='settings' && isAdmin() && !allProfiles.length) refreshMembers();
     });
   });
-  app.querySelectorAll('[data-statsub]').forEach(el=>{
+  document.querySelectorAll('[data-statsub]').forEach(el=>{
     el.addEventListener('click', ()=>{ statsSubtab = el.dataset.statsub; render(); });
   });
-  app.querySelectorAll('[data-ranktab]').forEach(el=>{
+  document.querySelectorAll('[data-ranktab]').forEach(el=>{
     el.addEventListener('click', ()=>{ rankTab = el.dataset.ranktab; render(); });
   });
   const statSel = document.getElementById('statPlayerSel');
@@ -2717,14 +2717,14 @@ function bindDynamicHandlers(){
     document.getElementById('schedPlaceNew').style.display = schedPlaceSel.value==='__new__' ? 'block' : 'none';
   });
 
-  app.querySelectorAll('[data-order-ns]').forEach(el=>{
+  document.querySelectorAll('[data-order-ns]').forEach(el=>{
     el.addEventListener('change', ()=>{
       const arr = orderArrOf(el.dataset.orderNs);
       arr[+el.dataset.orderIdx][el.dataset.orderField] = el.value;
       render();
     });
   });
-  app.querySelectorAll('[data-move]').forEach(el=>{
+  document.querySelectorAll('[data-move]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const arr = orderArrOf(el.dataset.orderNs);
       const idx = +el.dataset.orderIdx;
@@ -2735,7 +2735,7 @@ function bindDynamicHandlers(){
       render();
     });
   });
-  app.querySelectorAll('[data-pos-pick]').forEach(el=>{
+  document.querySelectorAll('[data-pos-pick]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const arr = orderArrOf(el.dataset.orderNs);
       const idx = +el.dataset.orderIdx;
@@ -2748,7 +2748,7 @@ function bindDynamicHandlers(){
   });
   const pitcherSel = document.getElementById('pitcherSel');
   if(pitcherSel) pitcherSel.addEventListener('change', ()=>{ scoringPitcher[recordNs] = pitcherSel.value; render(); });
-  app.querySelectorAll('[data-cup-pick]').forEach(el=>{
+  document.querySelectorAll('[data-cup-pick]').forEach(el=>{
     el.addEventListener('change', ()=>{
       const name = el.dataset.cupPick;
       if(el.checked){ if(!cupParticipants.includes(name)) cupParticipants.push(name); }
@@ -2756,7 +2756,7 @@ function bindDynamicHandlers(){
       render();
     });
   });
-  app.querySelectorAll('[data-bench-pick]').forEach(el=>{
+  document.querySelectorAll('[data-bench-pick]').forEach(el=>{
     el.addEventListener('change', ()=>{
       const s = schedule[+el.dataset.planIdx];
       if(!s) return;
@@ -2767,7 +2767,7 @@ function bindDynamicHandlers(){
       render();
     });
   });
-  app.querySelectorAll('[data-guest-up]').forEach(el=>{
+  document.querySelectorAll('[data-guest-up]').forEach(el=>{
     el.addEventListener('click', ()=>{
       if(!requireAdmin())return;
       const i = +el.dataset.guestUp;
@@ -2775,7 +2775,7 @@ function bindDynamicHandlers(){
       render();
     });
   });
-  app.querySelectorAll('[data-guest-down]').forEach(el=>{
+  document.querySelectorAll('[data-guest-down]').forEach(el=>{
     el.addEventListener('click', ()=>{
       if(!requireAdmin())return;
       const i = +el.dataset.guestDown;
@@ -2783,10 +2783,10 @@ function bindDynamicHandlers(){
       render();
     });
   });
-  app.querySelectorAll('[data-guest-remove]').forEach(el=>{
+  document.querySelectorAll('[data-guest-remove]').forEach(el=>{
     el.addEventListener('click', ()=>{ if(!requireAdmin())return; guestPlayers.splice(+el.dataset.guestRemove,1); render(); });
   });
-  app.querySelectorAll('[data-sched-remove]').forEach(el=>{
+  document.querySelectorAll('[data-sched-remove]').forEach(el=>{
     el.addEventListener('click', ()=>{
       if(!requireAdmin())return;
       const idx = +el.dataset.schedRemove;
@@ -2801,13 +2801,13 @@ function bindDynamicHandlers(){
       flushCloudSaveNow();
     });
   });
-  app.querySelectorAll('[data-sched-view]').forEach(el=>{
+  document.querySelectorAll('[data-sched-view]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const s = schedule[+el.dataset.schedView];
       if(s && s.historyId){ viewingGameId = s.historyId; currentView = 'gameDetail'; setActiveNav(); render(); window.scrollTo(0,0); }
     });
   });
-  app.querySelectorAll('[data-gamelog-id]').forEach(el=>{
+  document.querySelectorAll('[data-gamelog-id]').forEach(el=>{
     el.addEventListener('click', ()=>{
       viewingGameId = el.dataset.gamelogId; currentView = 'gameDetail'; setActiveNav(); render(); window.scrollTo(0,0);
     });
@@ -2816,19 +2816,19 @@ function bindDynamicHandlers(){
     el.classList.add('btn-pressed');
     if(navigator.vibrate) navigator.vibrate(12);
   }
-  app.querySelectorAll('[data-rec]').forEach(el=>{
+  document.querySelectorAll('[data-rec]').forEach(el=>{
     el.addEventListener('click', ()=>{ pressFeedback(el); setTimeout(()=> recordBat(el.dataset.ns, el.dataset.rec), 70); });
   });
-  app.querySelectorAll('[data-pitch]').forEach(el=>{
+  document.querySelectorAll('[data-pitch]').forEach(el=>{
     el.addEventListener('click', ()=>{ pressFeedback(el); setTimeout(()=> recordPitch(el.dataset.ns, el.dataset.pitch), 70); });
   });
-  app.querySelectorAll('[data-batfirst]').forEach(el=>{
+  document.querySelectorAll('[data-batfirst]').forEach(el=>{
     el.addEventListener('click', ()=>{ pendingBatFirst[el.dataset.ns] = el.dataset.batfirst; render(); });
   });
-  app.querySelectorAll('[data-count]').forEach(el=>{
+  document.querySelectorAll('[data-count]').forEach(el=>{
     el.addEventListener('click', ()=>{ adjustCount(el.dataset.ns, el.dataset.count, +el.dataset.delta); });
   });
-  app.querySelectorAll('[data-toggle-base]').forEach(el=>{
+  document.querySelectorAll('[data-toggle-base]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const g = liveGame[el.dataset.ns];
       if(!g) return;
@@ -2843,10 +2843,10 @@ function bindDynamicHandlers(){
   if(startGameSelEl) startGameSelEl.addEventListener('change', ()=>{ pendingGameChoice[startGameSelEl.dataset.ns].sel = startGameSelEl.value; });
   const startOppEl = document.getElementById('startOpp');
   if(startOppEl) startOppEl.addEventListener('input', ()=>{ pendingGameChoice[startOppEl.dataset.ns].opp = startOppEl.value; });
-  app.querySelectorAll('[data-edit-player]').forEach(el=>{
+  document.querySelectorAll('[data-edit-player]').forEach(el=>{
     el.addEventListener('click', ()=>{ if(!requireAdmin())return; editingPlayerIdx = +el.dataset.editPlayer; render(); window.scrollTo(0,0); });
   });
-  app.querySelectorAll('[data-action]').forEach(el=>{
+  document.querySelectorAll('[data-action]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const act = el.dataset.action;
       if(act==='showAddGuest'){ if(!requireAdmin())return; showGuestForm = true; render(); return; }
