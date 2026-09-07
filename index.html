@@ -240,6 +240,12 @@
   .score-hero .sc.pop{animation:popScore .4s ease;}
   @keyframes popOuts{0%{transform:scale(1);}35%{transform:scale(1.15);color:var(--bad);}100%{transform:scale(1);}}
   .inn .outs-n.pop{display:inline-block;animation:popOuts .4s ease;}
+  .mini-status{display:flex;justify-content:space-between;align-items:center;background:var(--chip);border-radius:10px;padding:10px 14px;margin-bottom:12px;}
+  .mini-status .ms-score{font-size:22px;font-weight:900;color:var(--ink);}
+  .mini-status .ms-meta{font-size:11px;color:var(--muted);text-align:right;line-height:1.6;}
+  .out-dots{display:inline-flex;gap:3px;vertical-align:middle;}
+  .out-dot{width:9px;height:9px;border-radius:50%;background:var(--line);display:inline-block;}
+  .out-dot.on{background:var(--bad);}
   .bases-mini{position:relative;width:64px;height:64px;margin:6px auto 4px;}
   .bases-mini .b-dot{position:absolute;width:20px;height:20px;border:2px solid var(--header2);background:#fff;transform:rotate(45deg);cursor:pointer;transition:transform .1s;}
   .bases-mini .b-dot:active{transform:rotate(45deg) scale(.85);}
@@ -1954,6 +1960,16 @@ function viewGameDetail(){
   `;
 }
 
+function renderMiniStatus(g){
+  if(!g) return '';
+  const outDots = [0,1,2].map(i=>`<span class="out-dot ${i<g.outs?'on':''}"></span>`).join('');
+  return `
+    <div class="mini-status">
+      <div class="ms-score">${g.us} : ${g.them}</div>
+      <div class="ms-meta">第${g.inning}局${g.half==='us'?'上':'下'} · ${g.half==='us'?'我隊進攻':'我隊防守'}<br>出局 <span class="out-dots">${outDots}</span> (${g.outs})</div>
+    </div>
+  `;
+}
 function renderBasesIndicator(g, ns){
   if(!g) return '';
   return `
@@ -2082,6 +2098,7 @@ function viewRecord(){
           <button class="btn-primary" style="margin-top:8px;" data-action="confirmSub" data-ns="${ns}" data-idx="${curIdx}">確認換人</button>
         </div>`;
       })() : ''}
+      ${g?renderMiniStatus(g):''}
       ${g?renderBasesIndicator(g, ns):''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <button class="btn-primary" style="margin:0;" data-rec="1B" data-ns="${ns}">一壘安打</button>
@@ -2116,6 +2133,7 @@ function viewRecord(){
   <section>
     <div class="section-title">投手紀錄${g&&g.half==='us'?'<span style="font-size:11px;color:var(--muted);font-weight:400;">(我隊打擊中,先記錄上面打者)</span>':''}</div>
     <div class="card ${g&&g.half==='us'?'panel-disabled':''}">
+      ${g?renderMiniStatus(g):''}
       ${g?renderBasesIndicator(g, ns):''}
       <select id="pitcherSel" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:14px;font-family:'Noto Sans TC',sans-serif;margin-bottom:10px;">
         <option value="">— 選擇投手 —</option>
