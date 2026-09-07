@@ -240,12 +240,17 @@
   .score-hero .sc.pop{animation:popScore .4s ease;}
   @keyframes popOuts{0%{transform:scale(1);}35%{transform:scale(1.15);color:var(--bad);}100%{transform:scale(1);}}
   .inn .outs-n.pop{display:inline-block;animation:popOuts .4s ease;}
-  .mini-status{display:flex;justify-content:space-between;align-items:center;background:var(--chip);border-radius:10px;padding:10px 14px;margin-bottom:12px;}
-  .mini-status .ms-score{font-size:22px;font-weight:900;color:var(--ink);}
-  .mini-status .ms-meta{font-size:11px;color:var(--muted);text-align:right;line-height:1.6;}
-  .out-dots{display:inline-flex;gap:3px;vertical-align:middle;}
-  .out-dot{width:9px;height:9px;border-radius:50%;background:var(--line);display:inline-block;}
-  .out-dot.on{background:var(--bad);}
+  .mini-status{display:flex;justify-content:space-between;align-items:flex-start;background:#0F2036;border-radius:10px;padding:10px 14px;margin-bottom:12px;}
+  .mini-status .ms-score{font-size:24px;font-weight:900;color:#fff;}
+  .mini-status .ms-meta{font-size:10.5px;color:#9AACC2;margin-top:2px;}
+  .light-rows{display:flex;flex-direction:column;gap:4px;}
+  .light-row{display:flex;align-items:center;gap:6px;justify-content:flex-end;}
+  .light-label{font-size:10px;color:#9AACC2;font-weight:700;width:26px;text-align:right;}
+  .light-dots{display:inline-flex;gap:4px;}
+  .light-dot{width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);display:inline-block;}
+  .light-dot.strike.on{background:#EAB308;border-color:#EAB308;box-shadow:0 0 6px rgba(234,179,8,.8);}
+  .light-dot.ball.on{background:#22C55E;border-color:#22C55E;box-shadow:0 0 6px rgba(34,197,94,.8);}
+  .light-dot.out.on{background:#EF4444;border-color:#EF4444;box-shadow:0 0 6px rgba(239,68,68,.8);}
   .count-adjust{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin:8px 0 4px;}
   .count-adjust button{border:1px solid var(--line);background:var(--card);color:var(--header2);font-size:11px;font-weight:700;padding:7px 2px;border-radius:8px;font-family:'Noto Sans TC',sans-serif;}
   .count-adjust button:active{transform:scale(.94);background:var(--accent-soft);}
@@ -856,7 +861,7 @@ function newLiveState(opp, battingFirst, scheduleIdx){
     half: battingFirst,      // 目前是誰在打擊
     inning: 1,
     outs: 0,
-    balls: 0, strikes: 0,    // 好壞球數,純顯示用,不會自動觸發保送/三振
+    balls: 1, strikes: 1,    // 壘球規則:每個打者從1壞1好開始,純顯示用,不會自動觸發保送/三振
     batterPtr: 0,
     us: 0, them: 0,
     bases: {1:false,2:false,3:false}, // 目前打擊方的壘上跑者
@@ -939,8 +944,8 @@ function switchHalfIfNeeded(g){
 function adjustCount(ns, kind, delta){
   const g = liveGame[ns];
   if(!g) return;
-  if(kind==='ball') g.balls = Math.max(0, Math.min(3, g.balls + delta));
-  else g.strikes = Math.max(0, Math.min(2, g.strikes + delta));
+  if(kind==='ball') g.balls = Math.max(1, Math.min(4, g.balls + delta));
+  else g.strikes = Math.max(1, Math.min(3, g.strikes + delta));
   if(navigator.vibrate) navigator.vibrate(8);
   render();
   flushCloudSaveNow();
@@ -968,7 +973,7 @@ function recordBat(ns, type){
   else if(type==='OUT'){ g.outs++; }
   g.batterPtr++;
   switchHalfIfNeeded(g);
-  g.balls = 0; g.strikes = 0;
+  g.balls = 1; g.strikes = 1;
   g.log.push({store:'bat', name:batter, type, prevGame});
   render();
   flushCloudSaveNow();
@@ -1007,7 +1012,7 @@ function recordPitch(ns, type){
     ensureInningRow(g, g.inning-1);
     g.innings[g.inning-1].them = (g.innings[g.inning-1].them||0) + 1;
   }
-  if(type==='OUT'||type==='K'||type==='H'||type==='BB'){ g.balls = 0; g.strikes = 0; }
+  if(type==='OUT'||type==='K'||type==='H'||type==='BB'){ g.balls = 1; g.strikes = 1; }
   switchHalfIfNeeded(g);
   g.log.push({store:'pitch', name:pitcher, type, prevGame});
   render();
@@ -1048,7 +1053,7 @@ function drawScorebug(ctx, W, H, ns){
   const opp = g.opp || '對手';
   const order = orderArrOf(ns).filter(r=>r.player);
   const batter = order.length ? order[g.batterPtr % order.length].player : '';
-  const barH = Math.max(96, Math.round(H*0.24));
+  const barH = Math.max(64, Math.round(H*0.15));
   const barY = H - barH - Math.round(H*0.035);
   const barX = Math.round(W*0.035);
   const barW = W - barX*2;
@@ -1092,6 +1097,7 @@ function drawScorebug(ctx, W, H, ns){
   ctx.restore();
 }
 function viewBroadcast(){
+  const ns = broadcastState.ns || recordNs;
   return `
   <section>
     <a data-action="closeBroadcast" style="font-size:12px;color:var(--header2);font-weight:700;">‹ 返回記錄比賽</a>
@@ -1101,8 +1107,11 @@ function viewBroadcast(){
       <div id="camStatusMsg" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center;">正在啟動相機…</div>
       <button id="broadcastRecBtn" class="btn-primary" style="margin-top:10px;background:linear-gradient(135deg,#DC2626,#B91C1C);" disabled>● 開始錄影</button>
       <div id="broadcastDownloadWrap"></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;">畫面會即時疊上比分、局數、出局、好壞球、壘包跟目前打者,錄好的影片會直接包含這些字卡,可以下載分享。第一次用手機會問相機/麥克風權限,請允許;離開這頁會自動關閉相機。</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;">畫面上的字卡會直接錄進影片裡。下面的按鈕邊錄邊記錄比賽用,離開這頁會自動關閉相機。</div>
     </div>
+  </section>
+  <section>
+    <div id="broadcastControls">${renderRecordControls(ns, {hideBroadcastButton:true})}</div>
   </section>
   `;
 }
@@ -1352,7 +1361,14 @@ function render(opts){
   if(currentView==='record') app.innerHTML = viewRecord();
   if(currentView==='gameDetail') app.innerHTML = viewGameDetail();
   if(currentView==='lineupPlan') app.innerHTML = viewLineupPlan();
-  if(currentView==='broadcast'){ if(!broadcastState.mounted) app.innerHTML = viewBroadcast(); }
+  if(currentView==='broadcast'){
+    if(!broadcastState.mounted){
+      app.innerHTML = viewBroadcast();
+    } else {
+      const ctrl = document.getElementById('broadcastControls');
+      if(ctrl) ctrl.innerHTML = renderRecordControls(broadcastState.ns, {hideBroadcastButton:true});
+    }
+  }
   if(currentView==='settings') app.innerHTML = viewSettings();
   renderStatBand();
   bindDynamicHandlers();
@@ -2154,13 +2170,23 @@ function viewGameDetail(){
   `;
 }
 
+function renderLightRow(label, kind, count, max){
+  const dots = Array.from({length:max}, (_,i)=>`<span class="light-dot ${kind} ${i<count?'on':''}"></span>`).join('');
+  return `<div class="light-row"><span class="light-label">${label}</span><span class="light-dots">${dots}</span></div>`;
+}
 function renderMiniStatus(g){
   if(!g) return '';
-  const outDots = [0,1,2].map(i=>`<span class="out-dot ${i<g.outs?'on':''}"></span>`).join('');
   return `
     <div class="mini-status">
-      <div class="ms-score">${g.us} : ${g.them}</div>
-      <div class="ms-meta">第${g.inning}局${g.half==='us'?'上':'下'} · ${g.half==='us'?'我隊進攻':'我隊防守'}<br>出局 <span class="out-dots">${outDots}</span> (${g.outs}) · ${g.balls}壞${g.strikes}好</div>
+      <div>
+        <div class="ms-score">${g.us} : ${g.them}</div>
+        <div class="ms-meta">第${g.inning}局${g.half==='us'?'上':'下'} · ${g.half==='us'?'我隊進攻':'我隊防守'}</div>
+      </div>
+      <div class="light-rows">
+        ${renderLightRow('好球','strike',g.strikes,3)}
+        ${renderLightRow('壞球','ball',g.balls,4)}
+        ${renderLightRow('出局','out',g.outs,3)}
+      </div>
     </div>
   `;
 }
@@ -2239,6 +2265,20 @@ function viewRecord(){
     </div>
   </section>
 
+  ${renderRecordControls(ns)}
+  `;
+}
+
+function renderRecordControls(ns, opts){
+  opts = opts || {};
+  const pool = ns==='cup' ? cupParticipants : [...activeRoster().map(p=>p.name), ...guestPlayers.map(g=>g.name)];
+  const order = orderArrOf(ns).filter(r=>r.player);
+  const g = liveGame[ns];
+  const pitcher = activePitcher(ns);
+  const liveBox = g ? computeGameBoxScore(g) : null;
+  const ps = (liveBox && pitcher) ? statOf(liveBox.pitch, pitcher) : null;
+  const currentBatter = (g && order.length) ? order[g.batterPtr % order.length].player : '';
+  return `
   <section>
     ${(()=>{
       const selectedPlanIdx = (!g && pendingGameChoice[ns].sel !== '') ? +pendingGameChoice[ns].sel : null;
@@ -2365,13 +2405,14 @@ function viewRecord(){
     <button class="btn-outline" style="flex:1;" data-action="oppRun" data-ns="${ns}">對手 +1</button>
     <button class="btn-primary" style="flex:1;margin-top:0;" data-action="endGame" data-ns="${ns}">結束</button>
   </div>
-  ${g ? `
+  ${(g && !opts.hideBroadcastButton) ? `
   <div style="margin-bottom:20px;">
     <button class="btn-outline" style="width:100%;" data-action="openBroadcast" data-ns="${ns}">📹 轉播錄影(相機 + 即時字卡)</button>
   </div>
   ` : ''}
   `;
 }
+
 
 function viewSettings(){
   return `
@@ -2664,6 +2705,7 @@ function bindDynamicHandlers(){
         const ns = el.dataset.ns;
         currentView = 'broadcast';
         setActiveNav(); render();
+        window.scrollTo(0,0);
         initBroadcastUI(ns);
         return;
       }
