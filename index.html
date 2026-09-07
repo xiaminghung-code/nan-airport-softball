@@ -1170,26 +1170,47 @@ function renderBroadcastRails(ns){
     `
   };
 }
+let pseudoFullscreen = false;
+function togglePseudoFullscreen(){
+  const stage = document.getElementById('broadcastStage');
+  if(!stage) return;
+  pseudoFullscreen = !pseudoFullscreen;
+  stage.classList.toggle('is-fullscreen', pseudoFullscreen);
+  const fsBtn = document.getElementById('fsBtn');
+  if(fsBtn) fsBtn.textContent = pseudoFullscreen ? '⛶ 退出全螢幕' : '⛶ 全螢幕';
+  const nav = document.getElementById('bottomNav');
+  if(nav) nav.style.display = pseudoFullscreen ? 'none' : '';
+  if(navigator.vibrate) navigator.vibrate(10);
+}
 function toggleBroadcastFullscreen(){
   const stage = document.getElementById('broadcastStage');
   if(!stage) return;
-  const isFs = document.fullscreenElement || document.webkitFullscreenElement;
-  if(!isFs){
-    const req = stage.requestFullscreen || stage.webkitRequestFullscreen;
-    if(req){ Promise.resolve(req.call(stage)).catch(()=>toast('這台裝置不支援全螢幕')); }
-    else toast('這台裝置不支援全螢幕');
-  } else {
+  // 如果已經在用 CSS 版全螢幕,不管瀏覽器 API 支不支援,都用同一套邏輯關掉
+  if(pseudoFullscreen){ togglePseudoFullscreen(); return; }
+  const nativeReq = stage.requestFullscreen || stage.webkitRequestFullscreen;
+  const inNativeFs = document.fullscreenElement || document.webkitFullscreenElement;
+  if(inNativeFs){
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
     if(exit) exit.call(document);
+    return;
+  }
+  if(nativeReq){
+    Promise.resolve(nativeReq.call(stage)).catch(()=>{ togglePseudoFullscreen(); });
+  } else {
+    // iOS Safari(包含加到主畫面的模式)本來就不支援標準全螢幕 API,直接用畫面模擬版
+    togglePseudoFullscreen();
   }
 }
 function onBroadcastFullscreenChange(){
   const stage = document.getElementById('broadcastStage');
   if(!stage) return;
   const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if(!isFs && pseudoFullscreen) return; // 交給 togglePseudoFullscreen 自己管理
   stage.classList.toggle('is-fullscreen', isFs);
   const fsBtn = document.getElementById('fsBtn');
   if(fsBtn) fsBtn.textContent = isFs ? '⛶ 退出全螢幕' : '⛶ 全螢幕';
+  const nav = document.getElementById('bottomNav');
+  if(nav) nav.style.display = isFs ? 'none' : '';
   if(isFs && screen.orientation && screen.orientation.lock){
     screen.orientation.lock('landscape').catch(()=>{});
   }
@@ -1331,6 +1352,11 @@ function closeBroadcastAndCleanup(){
   if(document.fullscreenElement || document.webkitFullscreenElement){
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
     if(exit) exit.call(document);
+  }
+  if(pseudoFullscreen){
+    pseudoFullscreen = false;
+    const nav = document.getElementById('bottomNav');
+    if(nav) nav.style.display = '';
   }
   if(broadcastState.drawLoopId) cancelAnimationFrame(broadcastState.drawLoopId);
   if(broadcastState.isRecording) stopBroadcastRecording();
