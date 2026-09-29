@@ -738,17 +738,27 @@ function mergeStatsInto(target, source){
     t.outs+=s.outs||0; t.K+=s.K||0; t.ER+=s.ER||0; t.W+=s.W||0;
   });
 }
-function computeSeasonStats(){
+function isCupRec(rec){ return rec.type==='盃賽' || rec.ns==='cup'; }
+// scope: 'lg' 聯賽(預設,含賽季前基礎數據) / 'cup' 盃賽(完全獨立,只算盃賽場次)
+function computeSeasonStats(scope){
+  scope = scope || 'lg';
   const bat = {}, pitch = {};
-  mergeStatsInto(bat, battingStats);
-  mergeStatsInto(pitch, pitchingStats);
+  if(scope==='lg'){ mergeStatsInto(bat, battingStats); mergeStatsInto(pitch, pitchingStats); }
   gameHistory.forEach(rec=>{
-    if(rec.box){ mergeStatsInto(bat, rec.box.bat); mergeStatsInto(pitch, rec.box.pitch); }
+    if(!rec.box) return;
+    if((scope==='cup') !== isCupRec(rec)) return;
+    mergeStatsInto(bat, rec.box.bat); mergeStatsInto(pitch, rec.box.pitch);
   });
-  Object.values(liveGame).forEach(g=>{
-    if(g){ const live = computeGameBoxScore(g); mergeStatsInto(bat, live.bat); mergeStatsInto(pitch, live.pitch); }
+  Object.keys(liveGame).forEach(k=>{
+    const g = liveGame[k];
+    if(g && (scope==='cup') === (k==='cup')){ const live = computeGameBoxScore(g); mergeStatsInto(bat, live.bat); mergeStatsInto(pitch, live.pitch); }
   });
   return { bat, pitch };
+}
+function poolFor(ns){
+  if(ns==='cup') return cupParticipants;
+  if(ns && ns.startsWith('plan:') && schedule[+ns.slice(5)]?.type==='盃賽') return cupParticipants;
+  return [...activeRoster().map(p=>p.name), ...guestPlayers.map(g=>g.name)];
 }
 function avgOf(store, name){
   const s = store[name];
@@ -820,9 +830,10 @@ function gameMVP(rec){
   }
   return { name: best, line };
 }
-function playerAppearanceCounts(){
+function playerAppearanceCounts(scope){
   const counts = {};
   gameHistory.forEach(rec=>{
+    if(scope && (scope==='cup') !== isCupRec(rec)) return;
     const names = new Set([...Object.keys(rec.box.bat||{}), ...Object.keys(rec.box.pitch||{})]);
     names.forEach(n=>{ counts[n] = (counts[n]||0) + 1; });
   });
@@ -830,6 +841,7 @@ function playerAppearanceCounts(){
 }
 function playerGameLog(name){
   return gameHistory
+    .filter(rec => !isCupRec(rec))
     .filter(rec => (rec.box.bat && rec.box.bat[name]) || (rec.box.pitch && rec.box.pitch[name]))
     .map(rec => ({ id:rec.id, date:rec.date, time:rec.time, opp:rec.opp, type:rec.type, bat:rec.box.bat?.[name], pitch:rec.box.pitch?.[name] }))
     .sort((a,b)=> (b.date||'').localeCompare(a.date||''));
@@ -1445,7 +1457,7 @@ function endGame(ns){
   }
   const record = {
     id: g.id, ns, opp, us: finalUs, them: finalThem, innings: g.innings,
-    date: sched?sched.date:'', time: sched?sched.time:'', type: gameType,
+    date: sched?sched.date:'', time: sched?sched.time:'', type: gameType, stage: sched?sched.stage:'',
     box, lineup, substitutions
   };
   gameHistory.push(record);
@@ -1752,7 +1764,6 @@ function statsCup(){
       </div>
     `;
   }
-  const pool = [...activeRoster().map(p=>p.name), ...guestPlayers.map(g=>g.name)];
   return `
     <div class="section-head"><div class="section-title" style="margin:0;">${cupInfo.name}</div>${isAdmin()?'<a data-action="deleteCup">刪除盃賽</a>':''}</div>
 
@@ -1780,19 +1791,14 @@ function statsCup(){
       ${isAdmin()?`<div style="font-size:11px;color:var(--muted);margin-top:8px;">去「賽程」新增,類型選「盃賽」就能指定階段。</div>`:''}
     </div>
 
-    <div class="section-title" style="margin-top:18px;">🎫 外援 / 傭兵名單</div>
+    <div class="section-title" style="margin-top:18px;">✅ 盃賽球員名單<span style="font-size:11px;color:var(--muted);font-weight:400;">(手動輸入,獨立於聯賽)</span></div>
     <div class="card">
-      <div style="font-size:11px;color:var(--muted);line-height:1.6;">外援名單現在跟聯賽共用了,去「球員」頁最下面新增/排序,這邊選好誰要參加這個盃賽就好。</div>
-    </div>
-
-    <div class="section-title" style="margin-top:18px;">✅ 參賽球員</div>
-    <div class="card" style="padding:4px 16px;">
-      <div style="font-size:11px;color:var(--muted);line-height:1.6;padding:8px 0 4px;">勾選這場盃賽會上場的隊員與外援,才會出現在下面的打序與守備選單中。</div>
-      ${pool.map(name=>`
-        <label class="roster-row" style="cursor:pointer;">
-          <input type="checkbox" data-cup-pick="${name}" ${cupParticipants.includes(name)?'checked':''} style="width:18px;height:18px;flex-shrink:0;" />
-          <div class="rinfo"><div class="rname">${name}</div></div>
-        </label>`).join('')}
+      ${cupParticipants.length ? cupParticipants.map((n,i)=>`
+        <div class="roster-row" style="align-items:center;">
+          <div class="rinfo"><div class="rname">${n}</div></div>
+          ${isAdmin()?`<a data-cup-remove="${i}" style="color:var(--danger,#DC2626);font-size:12px;font-weight:700;">移除</a>`:''}
+        </div>`).join('') : emptyState('還沒有球員','<div style="margin-top:2px;">輸入名字新增,可一次輸入多人(用逗號或空白分開)</div>')}
+      ${isAdmin()?`<div class="guest-add-row" style="margin-top:10px;"><input id="cupPlayerInput" placeholder="輸入球員姓名" /><button data-action="addCupPlayer">新增</button></div>`:''}
     </div>
 
     <div class="section-title" style="margin-top:18px;">打序<span style="font-size:11px;color:var(--muted);font-weight:400;">(盃賽)</span></div>
@@ -1806,23 +1812,68 @@ function statsCup(){
     </div>
 
     <button class="btn-primary" style="margin-top:14px;" data-nav="record" data-recns="cup">開啟盃賽比賽紀錄</button>
+    ${renderCupStats()}
+  `;
+}
+function renderCupStats(){
+  const season = computeSeasonStats('cup');
+  const cupGames = gameHistory.filter(isCupRec);
+  const w = cupGames.filter(r=>r.us>r.them).length, l = cupGames.filter(r=>r.us<r.them).length, t = cupGames.length-w-l;
+  const rows = computeLeaderboard(cupRankTab,'cup');
+  const bats = Object.keys(season.bat).filter(n=>season.bat[n].AB>0||season.bat[n].BB>0)
+    .sort((a,b)=> opsOf(statOf(season.bat,b))-opsOf(statOf(season.bat,a)));
+  const pits = Object.keys(season.pitch).filter(n=>season.pitch[n].outs>0||season.pitch[n].W>0);
+  return `
+    <div class="section-title" style="margin-top:22px;">📊 盃賽數據<span style="font-size:11px;color:var(--muted);font-weight:400;">(只計盃賽,與聯賽分開)</span></div>
+    <div class="card" style="text-align:center;font-weight:700;">盃賽戰績 ${w}勝 ${l}敗${t?' '+t+'和':''}<span style="color:var(--muted);font-weight:400;font-size:12px;"> · 已打 ${cupGames.length} 場</span></div>
+    <div class="subtabs">${rankTabs.map(([k,lb])=>`<button data-cupranktab="${k}" class="${cupRankTab===k?'active':''}">${lb}</button>`).join('')}</div>
+    <div class="card">
+      ${rows.length ? rows.map((p,i)=>`
+        <div class="rank-row ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
+          <div class="badge" style="background:${p.color||'#8592A8'}">${i+1}</div>
+          <div class="name"><div class="n">${i===0?'<span class="crown">👑</span>':''}${p.name}</div><div class="t">${p.team}</div></div>
+          <div class="v">${p.val}</div>
+        </div>`).join('') : emptyState('尚無盃賽排行資料','<div style="margin-top:2px;">記錄盃賽比賽後會自動統計</div>')}
+    </div>
+    ${bats.length ? `<div class="card" style="overflow-x:auto;margin-top:8px;">
+      <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;">🏏 盃賽打擊累積</div>
+      <table class="linescore"><tr><th style="text-align:left;">打者</th><th>打數</th><th>安打</th><th>全壘打</th><th>打點</th><th>打擊率</th><th>OPS</th></tr>
+      ${bats.map(n=>{const x=statOf(season.bat,n);return `<tr><td style="text-align:left;">${n}</td><td>${x.AB}</td><td>${x.H}</td><td>${x.HR}</td><td>${x.RBI}</td><td>${fmt3(x.AB?x.H/x.AB:0)}</td><td>${fmt3(opsOf(x))}</td></tr>`;}).join('')}
+      </table></div>` : ''}
+    ${pits.length ? `<div class="card" style="overflow-x:auto;margin-top:8px;">
+      <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;">⚾ 盃賽投球累積</div>
+      <table class="linescore"><tr><th style="text-align:left;">投手</th><th>局數</th><th>三振</th><th>自責分</th><th>防禦率</th><th>勝</th></tr>
+      ${pits.map(n=>{const x=statOf(season.pitch,n);return `<tr><td style="text-align:left;">${n}</td><td>${ipOf(season.pitch,n)}</td><td>${x.K}</td><td>${x.ER}</td><td>${eraOf(season.pitch,n)}</td><td>${x.W}</td></tr>`;}).join('')}
+      </table></div>` : ''}
+    ${cupGames.length ? `<div class="card" style="margin-top:8px;"><div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;">盃賽場次(點進去看逐場數據)</div>
+      ${cupGames.slice().reverse().map(r=>`<div class="sched-item" data-gamelog-id="${r.id}" style="cursor:pointer;"><span class="sched-tag cup">${r.stage||'盃賽'}</span><div style="flex:1;"><div class="matchup">南機場 vs ${r.opp} <span style="color:var(--header2);">${r.us}:${r.them}</span></div></div></div>`).join('')}
+    </div>`:''}
   `;
 }
 
-function computeLeaderboard(kind){
-  const season = computeSeasonStats();
+function computeLeaderboard(kind, scope){
+  scope = scope || 'lg';
+  const season = computeSeasonStats(scope);
   if(kind==='apps'){
-    const counts = playerAppearanceCounts();
+    const counts = playerAppearanceCounts(scope);
     return Object.keys(counts)
       .sort((a,b)=> counts[b]-counts[a])
       .map(n=> ({name:n, team:'南機場', val:String(counts[n]), color:'#2F6FED'}));
   }
-  if(kind==='avg' || kind==='hits'){
+  if(kind==='avg' || kind==='hits' || kind==='ops' || kind==='hr' || kind==='rbi'){
+    const val = {
+      avg:  n=> season.bat[n].AB ? season.bat[n].H/season.bat[n].AB : 0,
+      hits: n=> season.bat[n].H,
+      ops:  n=> opsOf(statOf(season.bat,n)),
+      hr:   n=> season.bat[n].HR||0,
+      rbi:  n=> season.bat[n].RBI||0
+    }[kind];
+    const fmt = { avg:v=>v.toFixed(3).replace(/^0/,''), ops:v=>fmt3(v) }[kind] || (v=>String(v));
     return Object.keys(season.bat)
-      .filter(n=>season.bat[n].AB>0)
-      .map(n=>({name:n, team:'南機場', ab:season.bat[n].AB, h:season.bat[n].H}))
-      .sort((a,b)=> kind==='avg' ? (b.h/b.ab)-(a.h/a.ab) : b.h-a.h)
-      .map(r=> ({name:r.name, team:r.team, val: kind==='avg' ? (r.h/r.ab).toFixed(3).replace(/^0/,'') : String(r.h), color:'#F2801E'}));
+      .filter(n=>season.bat[n].AB>0 || season.bat[n].BB>0)
+      .map(n=>({name:n, v:val(n)}))
+      .sort((a,b)=> b.v-a.v)
+      .map(r=> ({name:r.name, team:'南機場', val: fmt(r.v), color:'#F2801E'}));
   }
   return Object.keys(season.pitch)
     .filter(n=>season.pitch[n].outs>0 || season.pitch[n].W>0)
@@ -1831,11 +1882,13 @@ function computeLeaderboard(kind){
     .map(r=> ({name:r.name, team:r.team, val: kind==='wins' ? String(r.w) : r.era.toFixed(2), color:'#2F6FED'}));
 }
 
+const rankTabs = [["avg","打擊率"],["ops","OPS"],["hits","安打"],["hr","全壘打"],["rbi","打點"],["wins","勝投"],["era","防禦率"],["apps","出賽數"]];
+let cupRankTab = 'avg';
 function statsRank(){
-  const tabs = [["avg","打擊率"],["hits","安打"],["wins","勝投"],["era","防禦率"],["apps","出賽數"]];
+  const tabs = rankTabs;
   const rows = computeLeaderboard(rankTab);
   return `
-    <div class="section-title">📊 球員排行榜<span style="font-size:11px;color:var(--muted);font-weight:400;">(依實際紀錄自動統計,目前只有南機場自己的數據)</span></div>
+    <div class="section-title">📊 球員排行榜<span style="font-size:11px;color:var(--muted);font-weight:400;">(聯賽數據,盃賽另外計算)</span></div>
     <div class="subtabs">${tabs.map(([k,l])=>`<button data-ranktab="${k}" class="${rankTab===k?'active':''}">${l}</button>`).join('')}</div>
     <div class="card">
       ${rows.length ? rows.map((p,i)=>`
@@ -2205,7 +2258,7 @@ function renderBoxPitching(pitch){
     </table>
   `;
 }
-function renderCumulativeBatting(bat, lineup){
+function renderCumulativeBatting(bat, lineup, scope){
   let names = Object.keys(bat);
   if(!names.length) return '';
   if(lineup && lineup.length){
@@ -2217,7 +2270,7 @@ function renderCumulativeBatting(bat, lineup){
       return ia-ib;
     });
   }
-  const season = computeSeasonStats();
+  const season = computeSeasonStats(scope);
   return `
     <table class="linescore">
       <tr><th style="text-align:left;">打者</th><th>打數</th><th>安打</th><th>全壘打</th><th>打擊率</th><th>OPS</th></tr>
@@ -2225,10 +2278,10 @@ function renderCumulativeBatting(bat, lineup){
     </table>
   `;
 }
-function renderCumulativePitching(pitch){
+function renderCumulativePitching(pitch, scope){
   const names = Object.keys(pitch);
   if(!names.length) return '';
-  const season = computeSeasonStats();
+  const season = computeSeasonStats(scope);
   return `
     <table class="linescore">
       <tr><th style="text-align:left;">投手</th><th>局數</th><th>三振</th><th>自責分</th><th>防禦率</th><th>勝</th></tr>
@@ -2242,7 +2295,7 @@ function viewLineupPlan(){
   if(!s) return `<section><div class="card">${emptyState('找不到這場賽程')}</div></section>`;
   const ns = 'plan:'+idx;
   if(lineupExpanded[ns]===undefined) lineupExpanded[ns] = true;
-  const pool = [...activeRoster().map(p=>p.name), ...guestPlayers.map(g=>g.name)];
+  const pool = poolFor(ns);
   if(!s.plannedBench) s.plannedBench = [];
   const starters = new Set(orderArrOf(ns).filter(r=>r.player).map(r=>r.player));
   return `
@@ -2325,16 +2378,16 @@ function viewGameDetail(){
     <div class="section-title">🏏 打擊紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxBatting(rec.box.bat, rec.lineup)}</div>
     <div class="card" style="overflow-x:auto;margin-top:8px;">
-      <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;">📊 球季累積(含這場)</div>
-      ${renderCumulativeBatting(rec.box.bat, rec.lineup)}
+      <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;">📊 ${isCupRec(rec)?'盃賽':'球季'}累積(含這場)</div>
+      ${renderCumulativeBatting(rec.box.bat, rec.lineup, isCupRec(rec)?'cup':'lg')}
     </div>
   </section>
   <section>
     <div class="section-title">⚾ 投手紀錄</div>
     <div class="card" style="overflow-x:auto;">${renderBoxPitching(rec.box.pitch)}</div>
     <div class="card" style="overflow-x:auto;margin-top:8px;">
-      <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;">📊 球季累積(含這場)</div>
-      ${renderCumulativePitching(rec.box.pitch)}
+      <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;">📊 ${isCupRec(rec)?'盃賽':'球季'}累積(含這場)</div>
+      ${renderCumulativePitching(rec.box.pitch, isCupRec(rec)?'cup':'lg')}
     </div>
   </section>
   <section>
@@ -2402,7 +2455,7 @@ function renderLineScore(g){
 
 function viewRecord(){
   const ns = recordNs;
-  const pool = ns==='cup' ? cupParticipants : [...activeRoster().map(p=>p.name), ...guestPlayers.map(g=>g.name)];
+  const pool = poolFor(ns);
   const order = orderArrOf(ns).filter(r=>r.player);
   const g = liveGame[ns];
   const pitcher = activePitcher(ns);
@@ -2452,7 +2505,7 @@ function viewRecord(){
 
 function renderRecordControls(ns, opts){
   opts = opts || {};
-  const pool = ns==='cup' ? cupParticipants : [...activeRoster().map(p=>p.name), ...guestPlayers.map(g=>g.name)];
+  const pool = poolFor(ns);
   const order = orderArrOf(ns).filter(r=>r.player);
   const g = liveGame[ns];
   const pitcher = activePitcher(ns);
@@ -2748,13 +2801,11 @@ function bindDynamicHandlers(){
   });
   const pitcherSel = document.getElementById('pitcherSel');
   if(pitcherSel) pitcherSel.addEventListener('change', ()=>{ scoringPitcher[recordNs] = pitcherSel.value; render(); });
-  document.querySelectorAll('[data-cup-pick]').forEach(el=>{
-    el.addEventListener('change', ()=>{
-      const name = el.dataset.cupPick;
-      if(el.checked){ if(!cupParticipants.includes(name)) cupParticipants.push(name); }
-      else{ cupParticipants = cupParticipants.filter(n=>n!==name); }
-      render();
-    });
+  document.querySelectorAll('[data-cup-remove]').forEach(el=>{
+    el.addEventListener('click', ()=>{ if(!requireAdmin())return; cupParticipants.splice(+el.dataset.cupRemove,1); render(); });
+  });
+  document.querySelectorAll('[data-cupranktab]').forEach(el=>{
+    el.addEventListener('click', ()=>{ cupRankTab = el.dataset.cupranktab; render(); });
   });
   document.querySelectorAll('[data-bench-pick]').forEach(el=>{
     el.addEventListener('change', ()=>{
@@ -2849,6 +2900,14 @@ function bindDynamicHandlers(){
   document.querySelectorAll('[data-action]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const act = el.dataset.action;
+      if(act==='addCupPlayer'){
+        if(!requireAdmin())return;
+        const input = document.getElementById('cupPlayerInput');
+        const names = (input?.value||'').split(/[,,、\s]+/).map(x=>x.trim()).filter(Boolean);
+        let n=0; names.forEach(x=>{ if(!cupParticipants.includes(x)){ cupParticipants.push(x); n++; } });
+        if(n){ render(); toast(`已新增 ${n} 位盃賽球員`); } else toast('請輸入球員姓名');
+        return;
+      }
       if(act==='showAddGuest'){ if(!requireAdmin())return; showGuestForm = true; render(); return; }
       if(act==='confirmAddGuest'){
         if(!requireAdmin())return;
