@@ -415,7 +415,7 @@ let saveTimer = null;
 
 function snapshotState(){
   return { standings, roster, schedule, guestPlayers, cupInfo, cupParticipants,
-    cupBattingOrder, cupFieldAssignment, battingOrder, fieldAssignment,
+    cupBattingOrder, cupFieldAssignment, cupBench, battingOrder, fieldAssignment,
     battingStats, pitchingStats, leagueName, gameHistory, totalGames,
     preseasonGamesPlayed, preseasonStreak };
 }
@@ -427,6 +427,7 @@ function applyCloudData(d){
   if(d.guestPlayers){ guestPlayers.length=0; guestPlayers.push(...d.guestPlayers); }
   if('cupInfo' in d) cupInfo = d.cupInfo;
   if(d.cupParticipants){ cupParticipants.length=0; cupParticipants.push(...d.cupParticipants); }
+  if(d.cupBench){ cupBench.length=0; cupBench.push(...d.cupBench); }
   if(d.cupBattingOrder){ cupBattingOrder.length=0; cupBattingOrder.push(...d.cupBattingOrder); }
   if(d.cupFieldAssignment) Object.assign(cupFieldAssignment, d.cupFieldAssignment);
   if(d.battingOrder){ battingOrder.length=0; battingOrder.push(...d.battingOrder); }
@@ -754,6 +755,11 @@ function computeSeasonStats(scope){
     if(g && (scope==='cup') === (k==='cup')){ const live = computeGameBoxScore(g); mergeStatsInto(bat, live.bat); mergeStatsInto(pitch, live.pitch); }
   });
   return { bat, pitch };
+}
+function benchFor(ns, schedIdx){
+  const planned = (schedIdx!=null && schedule[schedIdx]) ? (schedule[schedIdx].plannedBench||[]) : [];
+  if(ns==='cup' || (schedIdx!=null && schedule[schedIdx]?.type==='盃賽')) return [...new Set([...planned, ...cupBench])];
+  return planned.length ? planned : null;
 }
 function poolFor(ns){
   if(ns==='cup') return cupParticipants;
@@ -1473,6 +1479,7 @@ function endGame(ns){
 /* ---------- 盃賽 ---------- */
 let cupInfo = null;            // {name}
 let showCupForm = false;
+const cupBench = [];           // 盃賽候補名單(不綁賽程)
 let cupParticipants = [];      // 參賽球員姓名(隊員+外援)
 let cupBattingOrder = new Array(10).fill(null).map(()=>({player:"", pos:""}));
 let cupFieldAssignment = {};
@@ -1796,6 +1803,7 @@ function statsCup(){
       ${cupParticipants.length ? cupParticipants.map((n,i)=>`
         <div class="roster-row" style="align-items:center;">
           <div class="rinfo"><div class="rname">${n}</div></div>
+          <label style="font-size:12px;color:var(--muted);margin-right:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" data-cup-bench="${n}" ${cupBench.includes(n)?'checked':''} style="width:16px;height:16px;" />替補</label>
           ${isAdmin()?`<a data-cup-remove="${i}" style="color:var(--danger,#DC2626);font-size:12px;font-weight:700;">移除</a>`:''}
         </div>`).join('') : emptyState('還沒有球員','<div style="margin-top:2px;">輸入名字新增,可一次輸入多人(用逗號或空白分開)</div>')}
       ${isAdmin()?`<div class="guest-add-row" style="margin-top:10px;"><input id="cupPlayerInput" placeholder="輸入球員姓名" /><button data-action="addCupPlayer">新增</button></div>`:''}
@@ -1803,7 +1811,7 @@ function statsCup(){
 
     <div class="section-title" style="margin-top:18px;">打序<span style="font-size:11px;color:var(--muted);font-weight:400;">(盃賽)</span></div>
     <div class="card">
-      ${renderBattingOrder(cupBattingOrder, cupParticipants, 'cup')}
+      ${renderBattingOrder(cupBattingOrder, cupParticipants, 'cup', null, cupBench)}
     </div>
 
     <div class="section-head" style="margin-top:18px;"><div class="section-title" style="margin:0;">⚾ 守備陣型<span style="font-size:11px;color:var(--muted);font-weight:400;">(盃賽)</span></div></div>
@@ -2519,7 +2527,7 @@ function renderRecordControls(ns, opts){
       const previewingPlan = !g && selectedPlanIdx!=null && schedule[selectedPlanIdx]?.plannedLineup;
       const lineupNs = previewingPlan ? 'plan:'+selectedPlanIdx : ns;
       const curIdx = g && g.half==='us' && currentBatter ? orderArrOf(lineupNs).findIndex(r=>r.player===currentBatter) : null;
-      const bench = g ? (g.scheduleIdx!=null ? schedule[g.scheduleIdx]?.plannedBench : null) : (selectedPlanIdx!=null ? schedule[selectedPlanIdx]?.plannedBench : null);
+      const bench = g ? benchFor(ns, g.scheduleIdx) : benchFor(ns, selectedPlanIdx);
       return `
       <div class="section-head">
         <div class="section-title" style="margin:0;">打序 & 守位${previewingPlan?'<span style="font-size:11px;color:var(--accent);font-weight:700;"> · 預排預覽</span>':''}</div>
@@ -2556,7 +2564,7 @@ function renderRecordControls(ns, opts){
       ${(g && g.half==='us' && currentBatter && subPanelOpen[ns]) ? (()=>{
         const arr = orderArrOf(ns);
         const curIdx = arr.findIndex(r=>r.player===currentBatter);
-        const bench = g.scheduleIdx!=null ? schedule[g.scheduleIdx]?.plannedBench : null;
+        const bench = benchFor(ns, g.scheduleIdx);
         const curPos = arr[curIdx]?.pos || '';
         return `
         <div class="sub-panel">
@@ -2801,8 +2809,16 @@ function bindDynamicHandlers(){
   });
   const pitcherSel = document.getElementById('pitcherSel');
   if(pitcherSel) pitcherSel.addEventListener('change', ()=>{ scoringPitcher[recordNs] = pitcherSel.value; render(); });
+  document.querySelectorAll('[data-cup-bench]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      if(!requireAdmin()){ render(); return; }
+      const n = el.dataset.cupBench, i = cupBench.indexOf(n);
+      if(el.checked && i<0) cupBench.push(n); else if(!el.checked && i>=0) cupBench.splice(i,1);
+      render();
+    });
+  });
   document.querySelectorAll('[data-cup-remove]').forEach(el=>{
-    el.addEventListener('click', ()=>{ if(!requireAdmin())return; cupParticipants.splice(+el.dataset.cupRemove,1); render(); });
+    el.addEventListener('click', ()=>{ if(!requireAdmin())return; const n=cupParticipants[+el.dataset.cupRemove]; cupParticipants.splice(+el.dataset.cupRemove,1); const bi=cupBench.indexOf(n); if(bi>=0) cupBench.splice(bi,1); render(); });
   });
   document.querySelectorAll('[data-cupranktab]').forEach(el=>{
     el.addEventListener('click', ()=>{ cupRankTab = el.dataset.cupranktab; render(); });
