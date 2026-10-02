@@ -417,7 +417,7 @@ function snapshotState(){
   return { standings, roster, schedule, guestPlayers, cupInfo, cupParticipants,
     cupBattingOrder, cupFieldAssignment, cupBench, battingOrder, fieldAssignment,
     battingStats, pitchingStats, leagueName, gameHistory, totalGames,
-    preseasonGamesPlayed, preseasonStreak };
+    preseasonGamesPlayed, preseasonStreak, liveGame, scoringPitcher };
 }
 function applyCloudData(d){
   if(!d) return;
@@ -440,6 +440,8 @@ function applyCloudData(d){
   if(typeof d.preseasonGamesPlayed === 'number') preseasonGamesPlayed = d.preseasonGamesPlayed;
   if(d.preseasonStreak) preseasonStreak = d.preseasonStreak;
   if(d.gameHistory){ gameHistory.length=0; gameHistory.push(...d.gameHistory); }
+  if(d.liveGame){ liveGame.lg = d.liveGame.lg || null; liveGame.cup = d.liveGame.cup || null; }
+  if(d.scoringPitcher){ scoringPitcher.lg = d.scoringPitcher.lg||''; scoringPitcher.cup = d.scoringPitcher.cup||''; }
 }
 async function cloudLoad(){
   try{
@@ -448,12 +450,22 @@ async function cloudLoad(){
   }catch(e){ console.warn('雲端讀取失敗', e); }
 }
 let lastSentUpdatedAt = null;
+let cloudSaving = false, cloudSaveAgain = false;
 async function doCloudSave(){
-  const updatedAt = new Date().toISOString();
-  lastSentUpdatedAt = updatedAt;
-  try{ await sb.from('team_state').upsert({ id: SYNC_ROW_ID, data: snapshotState(), updated_at: updatedAt }); }
-  catch(e){ console.warn('雲端儲存失敗', e); }
+  // 一次只送一筆,送的時候又有新變動就等這筆完成後再送最新的,避免舊資料蓋掉新資料
+  if(cloudSaving){ cloudSaveAgain = true; return; }
+  cloudSaving = true;
+  try{
+    do{
+      cloudSaveAgain = false;
+      const updatedAt = new Date().toISOString();
+      lastSentUpdatedAt = updatedAt;
+      try{ await sb.from('team_state').upsert({ id: SYNC_ROW_ID, data: snapshotState(), updated_at: updatedAt }); }
+      catch(e){ console.warn('雲端儲存失敗', e); }
+    } while(cloudSaveAgain);
+  } finally { cloudSaving = false; }
 }
+let lastLiveSig = '';
 function scheduleCloudSave(){
   if(!syncEnabled) return;
   clearTimeout(saveTimer);
@@ -470,7 +482,7 @@ function initSync(){
   syncEnabled = true;
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState==='hidden') flushCloudSaveNow();
-    else if(document.visibilityState==='visible' && session) cloudLoad().then(()=>render({skipSave:true}));
+    else if(document.visibilityState==='visible' && session && !cloudSaving) cloudLoad().then(()=>render({skipSave:true}));
   });
   window.addEventListener('pagehide', flushCloudSaveNow);
   sb.channel('team-state-changes')
@@ -1573,7 +1585,13 @@ function render(opts){
   renderStatBand();
   bindDynamicHandlers();
   flashLiveScore();
-  if(!skipSave) scheduleCloudSave();
+  if(!skipSave){
+    // 比賽進行中的任何變動(開始比賽、每一次按鍵記錄)都立刻存雲端,不等 debounce,中途關掉也不會遺失
+    let sig = '';
+    try{ sig = JSON.stringify([liveGame, scoringPitcher]); }catch(e){}
+    if(sig !== lastLiveSig){ lastLiveSig = sig; flushCloudSaveNow(); }
+    else scheduleCloudSave();
+  }
 }
 
 function daysUntil(dateStr){
